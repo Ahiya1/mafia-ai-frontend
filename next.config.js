@@ -1,8 +1,7 @@
-// next.config.js - Fixed for Railway Backend
+// next.config.js - Fixed for Next.js 15 compatibility
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Performance optimizations
-  swcMinify: true,
+  // Remove deprecated swcMinify (now default in Next.js 13+)
   compiler: {
     removeConsole: process.env.NODE_ENV === "production",
   },
@@ -36,15 +35,15 @@ const nextConfig = {
     ];
   },
 
-  // 🔥 FIXED: Environment variables for Railway backend
+  // Environment variables for Railway backend
   env: {
     NEXT_PUBLIC_API_URL:
       process.env.NODE_ENV === "production"
-        ? "https://mafia-ai-production.up.railway.app" // ✅ NO PORT!
+        ? "https://mafia-ai-production.up.railway.app"
         : "http://localhost:3001",
     NEXT_PUBLIC_WS_URL:
       process.env.NODE_ENV === "production"
-        ? "wss://mafia-ai-production.up.railway.app" // ✅ NO PORT!
+        ? "wss://mafia-ai-production.up.railway.app"
         : "ws://localhost:3001",
     NEXT_PUBLIC_APP_URL:
       process.env.NODE_ENV === "production"
@@ -52,13 +51,13 @@ const nextConfig = {
         : "http://localhost:3000",
   },
 
-  // Experimental features for better performance
+  // Remove experimental optimizeCss to fix critters issue
   experimental: {
-    optimizeCss: true,
+    // Remove optimizeCss
     webVitalsAttribution: ["CLS", "LCP"],
   },
 
-  // Output configuration for static export if needed
+  // Output configuration
   trailingSlash: false,
 
   // TypeScript configuration
@@ -70,6 +69,10 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: false,
   },
+
+  // Optimize performance
+  productionBrowserSourceMaps: false,
+  poweredByHeader: false,
 };
 
 module.exports = nextConfig;
