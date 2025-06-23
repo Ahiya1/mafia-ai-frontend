@@ -1,9 +1,12 @@
-// src/app/layout.tsx
+// src/app/layout.tsx - Enhanced Root Layout
 import { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
 import { SocketProvider } from "@/lib/socket-context";
+import { AuthProvider } from "../lib/auth-context";
+import { Navigation } from "../components/navigation";
+import { Footer } from "../components/footer";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -12,7 +15,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "AI Mafia - The Ultimate Social Deduction Experience",
+  title: {
+    default: "AI Mafia - The Ultimate Social Deduction Experience",
+    template: "%s | AI Mafia",
+  },
   description:
     "Play Mafia with cutting-edge AI personalities. Experience the future of social deduction gaming with premium AI opponents that think, deceive, and strategize like humans.",
   keywords: [
@@ -25,6 +31,7 @@ export const metadata: Metadata = {
     "detective",
   ],
   authors: [{ name: "AI Mafia Team" }],
+  creator: "AI Mafia Team",
   icons: {
     icon: "/detective-logo.png",
     shortcut: "/detective-logo.png",
@@ -79,34 +86,40 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body className="antialiased">
-        <SocketProvider>
-          {children}
-          <Toaster
-            position="top-right"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: "var(--noir-gray-800)",
-                color: "white",
-                border: "1px solid var(--detective-blue)",
-                borderRadius: "12px",
-                boxShadow: "var(--glow-blue)",
-              },
-              success: {
-                iconTheme: {
-                  primary: "var(--healer-green)",
-                  secondary: "white",
+        <AuthProvider>
+          <SocketProvider>
+            <div className="min-h-screen flex flex-col">
+              <Navigation />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </div>
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                duration: 4000,
+                style: {
+                  background: "var(--noir-gray-800)",
+                  color: "white",
+                  border: "1px solid var(--detective-blue)",
+                  borderRadius: "12px",
+                  boxShadow: "var(--glow-blue)",
                 },
-              },
-              error: {
-                iconTheme: {
-                  primary: "var(--mafia-red)",
-                  secondary: "white",
+                success: {
+                  iconTheme: {
+                    primary: "var(--healer-green)",
+                    secondary: "white",
+                  },
                 },
-              },
-            }}
-          />
-        </SocketProvider>
+                error: {
+                  iconTheme: {
+                    primary: "var(--mafia-red)",
+                    secondary: "white",
+                  },
+                },
+              }}
+            />
+          </SocketProvider>
+        </AuthProvider>
       </body>
     </html>
   );

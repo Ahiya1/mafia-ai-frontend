@@ -1,4 +1,4 @@
-// src/app/page.tsx - Premium Landing Page
+// src/app/page.tsx - Enhanced Landing Page
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -26,10 +26,16 @@ import {
   MessageCircle,
   Trophy,
   BarChart3,
+  CheckCircle,
+  Clock,
+  TrendingUp,
+  Award,
+  Globe,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useSocket } from "@/lib/socket-context";
+import { useAuth } from "@/lib/auth-context";
 import { ServerStatus } from "@/components/server-status";
 import { FeatureCard } from "@/components/feature-card";
 import { AnimatedCounter } from "@/components/animated-counter";
@@ -39,7 +45,9 @@ export default function LandingPage() {
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [activeFeature, setActiveFeature] = useState(0);
   const { isConnected, serverStats } = useSocket();
+  const { isAuthenticated, user } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { scrollYProgress } = useScroll({
@@ -56,18 +64,60 @@ export default function LandingPage() {
       author: "Sarah M.",
       role: "Beta Tester",
       rating: 5,
+      avatar: "🕵️‍♀️",
     },
     {
       text: "This isn't just a game - it's a psychological masterpiece. Every AI has unique tells.",
       author: "Marcus K.",
       role: "Streamer",
       rating: 5,
+      avatar: "🎮",
     },
     {
       text: "I've played hundreds of Mafia games. This is revolutionary. The future is here.",
       author: "Dr. Lisa Chen",
       role: "Game Designer",
       rating: 5,
+      avatar: "👩‍🔬",
+    },
+    {
+      text: "The research possibilities are endless. This is advancing the field of AI interaction.",
+      author: "Prof. James Wilson",
+      role: "AI Researcher",
+      rating: 5,
+      avatar: "👨‍🎓",
+    },
+  ];
+
+  const gameFeatures = [
+    {
+      title: "Advanced AI Minds",
+      description:
+        "30+ unique AI personalities with distinct communication styles",
+      icon: <Brain className="w-8 h-8" />,
+      gradient: "from-blue-500 to-purple-600",
+      stats: "95% Human-like",
+    },
+    {
+      title: "Perfect Disguise",
+      description: "AI players are indistinguishable from humans",
+      icon: <Users className="w-8 h-8" />,
+      gradient: "from-purple-500 to-pink-600",
+      stats: "60% Detection Rate",
+    },
+    {
+      title: "Real-time Strategy",
+      description: "Dynamic gameplay where AI adapts to your strategies",
+      icon: <Zap className="w-8 h-8" />,
+      gradient: "from-orange-500 to-red-600",
+      stats: "Sub-second Response",
+    },
+    {
+      title: "Behavioral Analysis",
+      description: "Advanced analytics track communication patterns",
+      icon: <BarChart3 className="w-8 h-8" />,
+      gradient: "from-green-500 to-teal-600",
+      stats: "Deep Insights",
     },
   ];
 
@@ -75,9 +125,17 @@ export default function LandingPage() {
     setMounted(true);
     const timer = setInterval(() => {
       setCurrentTestimonial((prev) => (prev + 1) % testimonials.length);
-    }, 4000);
+    }, 5000);
     return () => clearInterval(timer);
   }, [testimonials.length]);
+
+  // Auto-rotate features
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveFeature((prev) => (prev + 1) % gameFeatures.length);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [gameFeatures.length]);
 
   if (!mounted) {
     return (
@@ -99,49 +157,32 @@ export default function LandingPage() {
         style={{ y: heroY, opacity: heroOpacity }}
         className="relative min-h-screen flex items-center justify-center px-4"
       >
-        {/* Background Gradient */}
+        {/* Background Effects */}
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 opacity-60" />
 
-        {/* Floating Geometric Shapes */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <motion.div
-            animate={{
-              rotate: 360,
-              scale: [1, 1.1, 1],
-            }}
-            transition={{
-              rotate: { duration: 20, repeat: Infinity, ease: "linear" },
-              scale: { duration: 4, repeat: Infinity, ease: "easeInOut" },
-            }}
-            className="absolute top-10 right-10 w-32 h-32 border-2 border-blue-500/30 rounded-full"
-          />
-          <motion.div
-            animate={{
-              rotate: -360,
-              y: [0, -20, 0],
-            }}
-            transition={{
-              rotate: { duration: 15, repeat: Infinity, ease: "linear" },
-              y: { duration: 3, repeat: Infinity, ease: "easeInOut" },
-            }}
-            className="absolute bottom-20 left-10 w-24 h-24 border-2 border-orange-500/30 rotate-45"
-          />
-          <motion.div
-            animate={{
-              scale: [1, 1.2, 1],
-              opacity: [0.3, 0.6, 0.3],
-            }}
-            transition={{
-              duration: 2.5,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-            className="absolute top-1/2 left-1/4 w-16 h-16 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full blur-xl"
-          />
+        {/* Animated Grid */}
+        <div className="absolute inset-0 opacity-20">
+          <div className="grid grid-cols-12 grid-rows-12 h-full w-full">
+            {Array.from({ length: 144 }).map((_, i) => (
+              <motion.div
+                key={i}
+                animate={{
+                  opacity: [0, 0.5, 0],
+                  scale: [1, 1.2, 1],
+                }}
+                transition={{
+                  duration: 3,
+                  repeat: Infinity,
+                  delay: i * 0.02,
+                }}
+                className="border border-blue-500/20 bg-blue-500/5"
+              />
+            ))}
+          </div>
         </div>
 
         <div className="relative z-10 max-w-6xl mx-auto text-center">
-          {/* Premium Badge */}
+          {/* Announcement Banner */}
           <motion.div
             initial={{ scale: 0, rotate: -180 }}
             animate={{ scale: 1, rotate: 0 }}
@@ -151,9 +192,16 @@ export default function LandingPage() {
               damping: 20,
               delay: 0.1,
             }}
-            className="mb-6 inline-flex items-center gap-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 border border-orange-500/30 px-4 py-2 rounded-full text-sm font-medium"
+            className="mb-8 inline-flex items-center gap-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 border border-orange-500/30 px-6 py-3 rounded-full text-sm font-medium"
           >
-            🎮 <span>World's First AI Social Deduction Game</span>
+            <Sparkles className="w-4 h-4 text-orange-400" />
+            <span>🎮 World's First AI Social Deduction Game</span>
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            >
+              ✨
+            </motion.div>
           </motion.div>
 
           {/* Logo Animation */}
@@ -211,26 +259,31 @@ export default function LandingPage() {
             </span>
           </motion.h1>
 
-          {/* Subtitle */}
-          <motion.p
+          {/* Enhanced Subtitle */}
+          <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6, duration: 0.8 }}
-            className="text-xl md:text-3xl text-gray-300 mb-8 max-w-4xl mx-auto leading-relaxed"
+            className="mb-8"
           >
-            The world's first{" "}
-            <span className="text-cyan-400 font-semibold">
-              social deduction game
-            </span>{" "}
-            where cutting-edge AI personalities think, deceive, and strategize
-            like humans.
-            <br />
-            <span className="text-orange-400 font-medium">
+            <p className="text-xl md:text-3xl text-gray-300 mb-4 max-w-4xl mx-auto leading-relaxed">
+              The world's first{" "}
+              <span className="text-cyan-400 font-semibold">
+                social deduction game
+              </span>{" "}
+              where cutting-edge AI personalities think, deceive, and strategize
+              like humans.
+            </p>
+            <motion.p
+              animate={{ opacity: [0.7, 1, 0.7] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="text-lg md:text-xl text-orange-400 font-medium"
+            >
               Can you spot the artificial minds?
-            </span>
-          </motion.p>
+            </motion.p>
+          </motion.div>
 
-          {/* CTA Buttons */}
+          {/* Enhanced CTA Buttons */}
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
@@ -241,10 +294,10 @@ export default function LandingPage() {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="bg-gradient-to-r from-blue-500 to-orange-500 text-white text-xl px-8 py-4 rounded-xl font-semibold flex items-center gap-3 shadow-lg hover:shadow-2xl transition-all duration-300"
+                className="bg-gradient-to-r from-blue-500 to-orange-500 text-white text-xl px-8 py-4 rounded-xl font-semibold flex items-center gap-3 shadow-lg hover:shadow-2xl transition-all duration-300 min-w-[200px]"
               >
                 <Play className="w-6 h-6" />
-                Start Playing Now
+                {isAuthenticated ? "Continue Playing" : "Start Playing Now"}
                 <motion.div
                   animate={{ x: [0, 5, 0] }}
                   transition={{
@@ -258,24 +311,24 @@ export default function LandingPage() {
               </motion.button>
             </Link>
 
-            <Link href="#demo" className="group">
+            <Link href="/tutorial" className="group">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="border-2 border-orange-500 text-orange-400 text-xl px-8 py-4 rounded-xl font-semibold flex items-center gap-3 hover:bg-orange-500 hover:text-white transition-all duration-300"
+                className="border-2 border-orange-500 text-orange-400 text-xl px-8 py-4 rounded-xl font-semibold flex items-center gap-3 hover:bg-orange-500 hover:text-white transition-all duration-300 min-w-[200px]"
               >
                 <Eye className="w-6 h-6" />
-                Watch Demo
+                Watch Tutorial
               </motion.button>
             </Link>
           </motion.div>
 
-          {/* Live Stats */}
+          {/* Enhanced Live Stats */}
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 1, duration: 0.8 }}
-            className="glass-card inline-flex items-center gap-6 px-6 py-3"
+            className="glass-card inline-flex items-center gap-6 px-6 py-4"
           >
             <ServerStatus />
             {serverStats && (
@@ -294,6 +347,10 @@ export default function LandingPage() {
                     suffix=" active games"
                   />
                 </div>
+                <div className="flex items-center gap-2">
+                  <Bot className="w-5 h-5 text-purple-400" />
+                  <span>AI Online</span>
+                </div>
               </>
             )}
           </motion.div>
@@ -306,14 +363,23 @@ export default function LandingPage() {
               repeat: Infinity,
               ease: "easeInOut",
             }}
-            className="absolute bottom-10 left-1/2 transform -translate-x-1/2"
+            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 cursor-pointer"
+            onClick={() => {
+              window.scrollTo({
+                top: window.innerHeight,
+                behavior: "smooth",
+              });
+            }}
           >
-            <ChevronDown className="w-8 h-8 text-gray-400" />
+            <div className="flex flex-col items-center gap-2 text-gray-400 hover:text-white transition-colors">
+              <span className="text-sm">Discover More</span>
+              <ChevronDown className="w-6 h-6" />
+            </div>
           </motion.div>
         </div>
       </motion.section>
 
-      {/* Features Section */}
+      {/* Interactive Features Showcase */}
       <section className="relative py-24 px-4">
         <div className="max-w-7xl mx-auto">
           <motion.div
@@ -334,59 +400,73 @@ export default function LandingPage() {
             </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <FeatureCard
-              icon={<Brain className="w-8 h-8" />}
-              title="Advanced AI Minds"
-              description="30+ unique AI personalities with distinct communication styles, strategic approaches, and behavioral patterns that evolve throughout the game."
-              gradient="from-blue-500 to-purple-600"
-              delay={0.1}
-            />
+          {/* Interactive Feature Display */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center mb-16">
+            {/* Feature Preview */}
+            <motion.div
+              key={activeFeature}
+              initial={{ opacity: 0, x: -50 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="glass-card p-8"
+            >
+              <div className="flex items-center gap-4 mb-6">
+                <div
+                  className={`w-16 h-16 rounded-xl bg-gradient-to-r ${gameFeatures[activeFeature].gradient} flex items-center justify-center`}
+                >
+                  {gameFeatures[activeFeature].icon}
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold">
+                    {gameFeatures[activeFeature].title}
+                  </h3>
+                  <div className="text-orange-400 font-medium">
+                    {gameFeatures[activeFeature].stats}
+                  </div>
+                </div>
+              </div>
+              <p className="text-gray-300 text-lg leading-relaxed">
+                {gameFeatures[activeFeature].description}
+              </p>
+            </motion.div>
 
-            <FeatureCard
-              icon={<Users className="w-8 h-8" />}
-              title="Perfect Human Disguise"
-              description="AI players are indistinguishable from humans. They make mistakes, show emotions, and develop relationships just like real players."
-              gradient="from-purple-500 to-pink-600"
-              delay={0.2}
-            />
-
-            <FeatureCard
-              icon={<Zap className="w-8 h-8" />}
-              title="Real-time Strategy"
-              description="Experience dynamic gameplay where AI adapts to your strategies, forms alliances, and executes complex deception tactics."
-              gradient="from-orange-500 to-red-600"
-              delay={0.3}
-            />
-
-            <FeatureCard
-              icon={<Eye className="w-8 h-8" />}
-              title="Behavioral Analysis"
-              description="Advanced analytics track communication patterns, voting behavior, and social dynamics for unprecedented insights."
-              gradient="from-green-500 to-teal-600"
-              delay={0.4}
-            />
-
-            <FeatureCard
-              icon={<Shield className="w-8 h-8" />}
-              title="Secure & Private"
-              description="Enterprise-grade security with optional anonymous gameplay. Your data is protected with military-level encryption."
-              gradient="from-indigo-500 to-blue-600"
-              delay={0.5}
-            />
-
-            <FeatureCard
-              icon={<Crown className="w-8 h-8" />}
-              title="Premium Experience"
-              description="Console-quality gaming experience with stunning visuals, immersive sound design, and seamless cross-platform play."
-              gradient="from-yellow-500 to-orange-600"
-              delay={0.6}
-            />
+            {/* Feature Navigation */}
+            <div className="space-y-4">
+              {gameFeatures.map((feature, index) => (
+                <motion.button
+                  key={index}
+                  onClick={() => setActiveFeature(index)}
+                  whileHover={{ scale: 1.02 }}
+                  className={`w-full text-left p-4 rounded-lg transition-all ${
+                    activeFeature === index
+                      ? "bg-blue-500/20 border-blue-500 border-2"
+                      : "bg-gray-800/50 border-gray-600 border hover:border-gray-500"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-8 h-8 rounded-lg bg-gradient-to-r ${
+                        feature.gradient
+                      } flex items-center justify-center opacity-${
+                        activeFeature === index ? "100" : "60"
+                      }`}
+                    >
+                      {feature.icon}
+                    </div>
+                    <div>
+                      <div className="font-semibold">{feature.title}</div>
+                      <div className="text-sm text-gray-400">
+                        {feature.description}
+                      </div>
+                    </div>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Game Preview */}
+      {/* Enhanced Game Preview */}
       <section
         className="relative py-24 px-4 bg-gradient-to-b from-transparent to-slate-900/50"
         id="demo"
@@ -410,14 +490,16 @@ export default function LandingPage() {
             </p>
           </motion.div>
 
+          {/* Enhanced Game Interface Preview */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
-            className="glass-card p-8 max-w-4xl mx-auto"
+            className="glass-card p-8 max-w-5xl mx-auto"
           >
             <div className="bg-slate-900 rounded-xl p-6 border border-slate-700">
+              {/* Game Header */}
               <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-700">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-orange-500 rounded-lg flex items-center justify-center text-xl">
@@ -428,44 +510,67 @@ export default function LandingPage() {
                       Room #ALPHA7
                     </h3>
                     <p className="text-sm text-gray-400">
-                      10/10 Players • 7 AI Hidden
+                      10/10 Players • 7 AI Hidden • Round 2
                     </p>
                   </div>
                 </div>
-                <div className="text-sm text-orange-400 font-mono">
-                  Phase: Discussion
+                <div className="flex items-center gap-4">
+                  <div className="text-sm text-orange-400 font-mono bg-orange-500/20 px-3 py-1 rounded">
+                    Phase: Discussion
+                  </div>
+                  <div className="text-sm text-blue-400 font-mono bg-blue-500/20 px-3 py-1 rounded">
+                    ⏱️ 2:34
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-4 text-left">
-                <div className="flex items-start gap-3">
+              {/* Game Chat Simulation */}
+              <div className="space-y-4 text-left mb-6">
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="flex items-start gap-3"
+                >
                   <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center text-sm">
                     S
                   </div>
                   <div>
                     <span className="text-blue-400 font-semibold">Sarah:</span>
                     <span className="text-gray-300 ml-2">
-                      I think Alex is acting suspicious. Too analytical...
+                      Alex's timing seems too perfect. Always responds in
+                      exactly 2 seconds...
                     </span>
                   </div>
-                </div>
+                </motion.div>
 
-                <div className="flex items-start gap-3">
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 1 }}
+                  className="flex items-start gap-3"
+                >
                   <div className="w-8 h-8 bg-orange-500/20 rounded-full flex items-center justify-center text-sm">
                     A
                   </div>
                   <div>
                     <span className="text-orange-400 font-semibold">Alex:</span>
                     <span className="text-gray-300 ml-2">
-                      Just being thorough! Marcus hasn't said much though 🤔
+                      I'm just thinking carefully before I speak! Marcus has
+                      been unusually quiet though 🤔
                     </span>
                     <span className="ml-2 text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded">
-                      🤖 AI
+                      🤖 Claude Sonnet 4
                     </span>
                   </div>
-                </div>
+                </motion.div>
 
-                <div className="flex items-start gap-3">
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 1.5 }}
+                  className="flex items-start gap-3"
+                >
                   <div className="w-8 h-8 bg-purple-500/20 rounded-full flex items-center justify-center text-sm">
                     M
                   </div>
@@ -474,40 +579,58 @@ export default function LandingPage() {
                       Marcus:
                     </span>
                     <span className="text-gray-300 ml-2">
-                      Sorry, was analyzing voting patterns. Elena seems off to
-                      me.
+                      Sorry, analyzing voting patterns from last round. Elena's
+                      sudden accusation feels suspicious.
                     </span>
                     <span className="ml-2 text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded">
-                      🤖 AI
+                      🤖 GPT-4o
                     </span>
                   </div>
-                </div>
+                </motion.div>
 
-                <div className="flex items-start gap-3">
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 2 }}
+                  className="flex items-start gap-3"
+                >
                   <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center text-sm">
                     Y
                   </div>
                   <div>
                     <span className="text-green-400 font-semibold">You:</span>
                     <span className="text-gray-300 ml-2">
-                      Both Alex and Marcus have very structured responses...
+                      Both Alex and Marcus have very structured responses. Too
+                      analytical for humans?
                     </span>
                   </div>
-                </div>
+                </motion.div>
               </div>
 
-              <div className="mt-6 text-center">
-                <div className="inline-flex items-center gap-2 bg-orange-500/20 text-orange-400 px-4 py-2 rounded-lg text-sm">
-                  <Target className="w-4 h-4" />
-                  💡 Can you identify the AI players?
+              {/* Detection Challenge */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 2.5 }}
+                className="text-center bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-lg p-4"
+              >
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <Target className="w-5 h-5 text-orange-400" />
+                  <span className="font-bold text-orange-400">
+                    Detection Challenge
+                  </span>
                 </div>
-              </div>
+                <p className="text-sm text-gray-300">
+                  💡 Can you identify which players are AI? Look for patterns in
+                  timing, language complexity, and behavioral consistency!
+                </p>
+              </motion.div>
             </div>
           </motion.div>
         </div>
       </section>
 
-      {/* Testimonials Section */}
+      {/* Enhanced Social Proof */}
       <section className="relative py-24 px-4">
         <div className="max-w-4xl mx-auto">
           <motion.div
@@ -519,7 +642,7 @@ export default function LandingPage() {
           >
             <h2 className="text-5xl md:text-6xl font-bold mb-6">
               <span className="bg-gradient-to-r from-blue-400 to-orange-500 bg-clip-text text-transparent">
-                What Players Say
+                Loved by Players Worldwide
               </span>
             </h2>
             <p className="text-xl text-gray-400">
@@ -527,28 +650,39 @@ export default function LandingPage() {
             </p>
           </motion.div>
 
+          {/* Enhanced Testimonials */}
           <AnimatePresence mode="wait">
             <motion.div
               key={currentTestimonial}
-              initial={{ opacity: 0, x: 100 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -100 }}
-              transition={{ duration: 0.5 }}
-              className="glass-card p-8 text-center max-w-2xl mx-auto"
+              initial={{ opacity: 0, x: 100, rotateY: 90 }}
+              animate={{ opacity: 1, x: 0, rotateY: 0 }}
+              exit={{ opacity: 0, x: -100, rotateY: -90 }}
+              transition={{ duration: 0.6 }}
+              className="glass-card p-8 text-center max-w-3xl mx-auto"
             >
+              <div className="text-6xl mb-4">
+                {testimonials[currentTestimonial].avatar}
+              </div>
+
               <div className="flex justify-center mb-4">
                 {[...Array(testimonials[currentTestimonial].rating)].map(
                   (_, i) => (
-                    <Star
+                    <motion.div
                       key={i}
-                      className="w-6 h-6 text-yellow-400 fill-current"
-                    />
+                      initial={{ scale: 0, rotate: -180 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                    >
+                      <Star className="w-6 h-6 text-yellow-400 fill-current" />
+                    </motion.div>
                   )
                 )}
               </div>
-              <blockquote className="text-xl md:text-2xl text-gray-300 mb-6 italic">
+
+              <blockquote className="text-xl md:text-2xl text-gray-300 mb-6 italic leading-relaxed">
                 "{testimonials[currentTestimonial].text}"
               </blockquote>
+
               <div>
                 <div className="font-semibold text-blue-400 text-lg">
                   {testimonials[currentTestimonial].author}
@@ -560,6 +694,7 @@ export default function LandingPage() {
             </motion.div>
           </AnimatePresence>
 
+          {/* Testimonial Navigation */}
           <div className="flex justify-center mt-8 gap-2">
             {testimonials.map((_, index) => (
               <button
@@ -576,7 +711,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* Enhanced CTA Section */}
       <section className="relative py-24 px-4 bg-gradient-to-r from-blue-900/50 via-purple-900/50 to-orange-900/50">
         <div className="max-w-4xl mx-auto text-center">
           <motion.div
@@ -585,15 +720,23 @@ export default function LandingPage() {
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
           >
+            <motion.div
+              animate={{ rotate: [0, 5, -5, 0] }}
+              transition={{ duration: 3, repeat: Infinity }}
+              className="text-8xl mb-6"
+            >
+              🕵️‍♂️
+            </motion.div>
+
             <h2 className="text-5xl md:text-6xl font-bold mb-6">
               Ready to Play Detective?
             </h2>
-            <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto leading-relaxed">
               Join the revolution in social deduction gaming. Experience AI
               personalities so realistic, you'll question what's human.
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
+            <div className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-8">
               <Link href="/play" className="group">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -606,14 +749,40 @@ export default function LandingPage() {
                 </motion.button>
               </Link>
 
-              <motion.div
-                animate={{ scale: [1, 1.05, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="text-sm text-gray-400"
-              >
-                ⚡ Instant play • No download required
-              </motion.div>
+              {!isAuthenticated && (
+                <Link href="/auth/signup" className="group">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="border-2 border-blue-500 text-blue-400 text-xl px-12 py-4 rounded-xl font-semibold flex items-center gap-3 hover:bg-blue-500 hover:text-white transition-all duration-300"
+                  >
+                    <Shield className="w-6 h-6" />
+                    Create Account
+                  </motion.button>
+                </Link>
+              )}
             </div>
+
+            {/* Quick Stats */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="grid grid-cols-3 gap-4 max-w-md mx-auto text-sm"
+            >
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-400">⚡</div>
+                <div className="text-gray-400">Instant play</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-400">🚫</div>
+                <div className="text-gray-400">No download</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-orange-400">🆓</div>
+                <div className="text-gray-400">Free to start</div>
+              </div>
+            </motion.div>
           </motion.div>
         </div>
       </section>
