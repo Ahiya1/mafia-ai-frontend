@@ -6,12 +6,12 @@ import { motion } from "framer-motion";
 import {
   Github,
   Twitter,
-  Discord,
   Mail,
   Shield,
   FileText,
   HelpCircle,
   Heart,
+  Disc,
   ExternalLink,
 } from "lucide-react";
 
@@ -66,7 +66,7 @@ export function Footer() {
     {
       name: "Discord",
       href: "https://discord.gg/aimafia",
-      icon: <Discord className="w-5 h-5" />,
+      icon: <Disc className="w-5 h-5" />,
     },
     {
       name: "GitHub",
