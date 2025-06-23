@@ -1,4 +1,4 @@
-// src/lib/socket-context.tsx - Fixed for Railway Backend
+// src/lib/socket-context.tsx - Updated without mock data
 "use client";
 
 import {
@@ -53,7 +53,6 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [serverStats, setServerStats] = useState<ServerStats | null>(null);
 
   useEffect(() => {
-    // 🔥 FIXED: Proper environment variable handling with fallbacks
     const isProduction = process.env.NODE_ENV === "production";
     const socketUrl = isProduction
       ? process.env.NEXT_PUBLIC_WS_URL ||
@@ -62,7 +61,6 @@ export function SocketProvider({ children }: SocketProviderProps) {
 
     console.log("🔌 Connecting to WebSocket:", socketUrl);
     console.log("🌍 Environment:", process.env.NODE_ENV);
-    console.log("🔧 Socket URL from env:", process.env.NEXT_PUBLIC_WS_URL);
 
     setConnectionStatus("connecting");
 
@@ -72,7 +70,6 @@ export function SocketProvider({ children }: SocketProviderProps) {
       retries: 5,
       autoConnect: true,
       forceNew: true,
-      // 🔥 FIXED: Add proper headers for CORS
       extraHeaders: {
         "Access-Control-Allow-Origin": "*",
       },
@@ -93,7 +90,6 @@ export function SocketProvider({ children }: SocketProviderProps) {
         duration: 3000,
       });
 
-      // Request initial stats
       fetchServerStats();
     });
 
@@ -115,7 +111,6 @@ export function SocketProvider({ children }: SocketProviderProps) {
       console.error("🔴 Connection error:", error);
       setConnectionStatus("error");
 
-      // More specific error handling
       if (error.message.includes("CORS")) {
         toast.error("Connection blocked by CORS policy");
       } else if (error.message.includes("timeout")) {
@@ -148,6 +143,13 @@ export function SocketProvider({ children }: SocketProviderProps) {
       console.log("🏠 Joined room:", data);
       toast.success(`Joined room ${data.roomCode}!`, {
         icon: "🎮",
+      });
+    });
+
+    newSocket.on("observer_joined", (data) => {
+      console.log("👁️ Joined as observer:", data);
+      toast.success(`Watching room ${data.roomCode}`, {
+        icon: "👁️",
       });
     });
 
@@ -225,18 +227,19 @@ export function SocketProvider({ children }: SocketProviderProps) {
       toast.error(error.message || "An error occurred");
     });
 
-    // Stats updates
+    // Stats updates from real backend
     newSocket.on("stats_update", (stats) => {
-      setServerStats({
-        totalPlayers: stats.server?.activeConnections || 0,
-        activeGames: stats.rooms?.activeRooms || 0,
-        totalRooms: stats.rooms?.totalRooms || 0,
-      });
+      if (stats && stats.server && stats.rooms) {
+        setServerStats({
+          totalPlayers: stats.server.activeConnections || 0,
+          activeGames: stats.rooms.activeRooms || 0,
+          totalRooms: stats.rooms.totalRooms || 0,
+        });
+      }
     });
 
     setSocket(newSocket);
 
-    // Cleanup on unmount
     return () => {
       console.log("🧹 Cleaning up socket connection");
       newSocket.disconnect();
@@ -258,37 +261,24 @@ export function SocketProvider({ children }: SocketProviderProps) {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
         },
       });
 
       if (response.ok) {
         const data = await response.json();
         setServerStats({
-          totalPlayers: data.server?.uptime
-            ? Math.floor(data.server.uptime / 60) + 1247
-            : 1247,
-          activeGames: data.rooms?.activeRooms || 89,
-          totalRooms: data.rooms?.totalRooms || 150,
+          totalPlayers: data.server?.activeConnections || 0,
+          activeGames: data.rooms?.activeRooms || 0,
+          totalRooms: data.rooms?.totalRooms || 0,
         });
         console.log("📊 Stats updated:", data);
       } else {
-        console.warn("📊 Stats fetch failed, using fallback");
-        // Fallback stats for demo
-        setServerStats({
-          totalPlayers: 1247,
-          activeGames: 89,
-          totalRooms: 150,
-        });
+        console.warn("📊 Failed to fetch stats - server response not OK");
+        // Don't set fallback stats - leave as null
       }
     } catch (error) {
       console.warn("📊 Failed to fetch server stats:", error);
-      // Fallback stats for demo
-      setServerStats({
-        totalPlayers: 1247,
-        activeGames: 89,
-        totalRooms: 150,
-      });
+      // Don't set fallback stats - leave as null
     }
   };
 
@@ -296,7 +286,6 @@ export function SocketProvider({ children }: SocketProviderProps) {
   useEffect(() => {
     if (!isConnected) return;
 
-    // Fetch immediately and then every 10 seconds
     fetchServerStats();
     const interval = setInterval(fetchServerStats, 10000);
 

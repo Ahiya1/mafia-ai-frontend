@@ -1,4 +1,4 @@
-// src/components/game-setup.tsx - Enhanced Game Setup
+// src/components/game-setup.tsx - Updated with Creator Auto-Premium
 "use client";
 
 import { useState, useEffect } from "react";
@@ -18,8 +18,10 @@ import {
   CheckCircle,
   XCircle,
   RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useSocket } from "@/lib/socket-context";
 import toast from "react-hot-toast";
 
@@ -48,16 +50,33 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
   const [userPackages, setUserPackages] = useState<PackageInfo[]>([]);
   const [isLoadingPackages, setIsLoadingPackages] = useState(true);
   const [hasFreePremium, setHasFreePremium] = useState(false);
+  const [isCreator, setIsCreator] = useState(false);
   const { createRoom, joinRoom, isConnected, connectionStatus, serverStats } =
     useSocket();
 
   useEffect(() => {
-    checkUserPackages();
+    checkUserStatus();
   }, []);
 
-  const checkUserPackages = async () => {
+  const checkUserStatus = async () => {
     setIsLoadingPackages(true);
     try {
+      // Check if user is a creator first
+      const creatorCheck = await checkCreatorStatus();
+
+      if (creatorCheck) {
+        setIsCreator(true);
+        setHasFreePremium(true);
+        setPremiumEnabled(true);
+        setIsLoadingPackages(false);
+        toast.success("Creator access detected! Premium features enabled.", {
+          icon: "👑",
+          duration: 4000,
+        });
+        return;
+      }
+
+      // Check user packages if not creator
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/user/packages`,
         {
@@ -70,7 +89,6 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
         const packages = data.packages || [];
         setUserPackages(packages);
 
-        // Check if user has premium access
         const hasPremium = packages.some(
           (pkg: PackageInfo) =>
             pkg.premiumModelsEnabled && pkg.gamesRemaining > 0
@@ -86,26 +104,32 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
         }
       }
     } catch (error) {
-      console.error("Failed to check user packages:", error);
-      // Enable free premium for demo
-      setHasFreePremium(true);
-      setPremiumEnabled(true);
-      setUserPackages([
-        {
-          id: "demo_premium",
-          name: "Demo Premium Access",
-          gamesRemaining: 25,
-          premiumModelsEnabled: true,
-          features: [
-            "Premium AI models",
-            "Advanced analytics",
-            "Game recording",
-          ],
-        },
-      ]);
+      console.error("Failed to check user status:", error);
     } finally {
       setIsLoadingPackages(false);
     }
+  };
+
+  const checkCreatorStatus = async (): Promise<boolean> => {
+    // Check if creator password is stored in localStorage or session
+    const storedCreatorStatus = localStorage.getItem(
+      "ai_mafia_creator_verified"
+    );
+
+    if (storedCreatorStatus === "true") {
+      return true;
+    }
+
+    // Check URL params for creator access
+    const urlParams = new URLSearchParams(window.location.search);
+    const creatorParam = urlParams.get("creator");
+
+    if (creatorParam === "true") {
+      localStorage.setItem("ai_mafia_creator_verified", "true");
+      return true;
+    }
+
+    return false;
   };
 
   const handleCreateRoom = async () => {
@@ -119,15 +143,10 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
         gameMode,
         allowSpectators: false,
         maxPlayers: 10,
+        isCreator: isCreator,
       };
 
       createRoom(playerName.trim(), settings);
-
-      // Wait for successful creation before proceeding
-      setTimeout(() => {
-        onGameStartAction();
-        setIsCreating(false);
-      }, 2000);
     } catch (error) {
       console.error("Failed to create room:", error);
       toast.error("Failed to create room");
@@ -141,18 +160,7 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
     setIsJoining(true);
 
     try {
-      const settings = {
-        premiumModelsEnabled: premiumEnabled,
-        gameMode,
-      };
-
       joinRoom(roomCode.toUpperCase(), playerName.trim());
-
-      // Wait for successful join before proceeding
-      setTimeout(() => {
-        onGameStartAction();
-        setIsJoining(false);
-      }, 2000);
     } catch (error) {
       console.error("Failed to join room:", error);
       toast.error("Failed to join room");
@@ -281,6 +289,24 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
             Join the ultimate social deduction experience with AI personalities
           </p>
 
+          {/* Creator Badge */}
+          {isCreator && (
+            <div className="mt-6 flex justify-center">
+              <div className="glass-card px-4 py-2 flex items-center gap-3">
+                <Crown className="w-5 h-5 text-orange-400" />
+                <span className="text-orange-400 font-semibold">
+                  Creator Mode Active
+                </span>
+                <Link
+                  href="/admin"
+                  className="text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded hover:bg-orange-500/30"
+                >
+                  Admin Dashboard
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Server Status */}
           {serverStats && (
             <div className="mt-6 flex justify-center">
@@ -371,6 +397,11 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                       <div className="flex items-center gap-2 text-sm">
                         <Bot className="w-4 h-4 text-orange-400" />
                         <span className="text-orange-400">{mode.aiModels}</span>
+                        {isCreator && (
+                          <span className="bg-orange-500/20 text-orange-400 px-2 py-1 rounded text-xs ml-2">
+                            Creator Auto-Premium
+                          </span>
+                        )}
                       </div>
                     </div>
                   </motion.button>
@@ -409,7 +440,7 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                   maxLength={20}
                   onKeyPress={(e) => {
                     if (e.key === "Enter" && playerName.trim().length >= 2) {
-                      setCurrentStep("premium");
+                      setCurrentStep(isCreator ? "action" : "premium");
                     }
                   }}
                 />
@@ -426,7 +457,9 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                     Back
                   </button>
                   <button
-                    onClick={() => setCurrentStep("premium")}
+                    onClick={() =>
+                      setCurrentStep(isCreator ? "action" : "premium")
+                    }
                     disabled={playerName.trim().length < 2}
                     className="btn-detective flex-1 disabled:opacity-50"
                   >
@@ -437,7 +470,7 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
             </motion.div>
           )}
 
-          {currentStep === "premium" && (
+          {currentStep === "premium" && !isCreator && (
             <motion.div
               key="premium"
               initial={{ opacity: 0, x: 50 }}
@@ -551,45 +584,6 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                 </div>
               </div>
 
-              {/* Package Status */}
-              {userPackages.length > 0 && (
-                <div className="glass-card p-6">
-                  <h3 className="font-bold mb-4 flex items-center gap-2">
-                    <Crown className="w-5 h-5 text-orange-400" />
-                    Your Premium Access
-                  </h3>
-                  <div className="space-y-3">
-                    {userPackages.map((pkg) => (
-                      <div
-                        key={pkg.id}
-                        className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg"
-                      >
-                        <div>
-                          <span className="font-medium">{pkg.name}</span>
-                          <div className="text-sm text-gray-400">
-                            {pkg.gamesRemaining} games remaining
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {pkg.premiumModelsEnabled && (
-                            <Crown className="w-4 h-4 text-orange-400" />
-                          )}
-                          <span
-                            className={`text-sm px-2 py-1 rounded ${
-                              pkg.gamesRemaining > 0
-                                ? "bg-green-500/20 text-green-400"
-                                : "bg-red-500/20 text-red-400"
-                            }`}
-                          >
-                            {pkg.gamesRemaining > 0 ? "Active" : "Expired"}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <div className="flex gap-4">
                 <button
                   onClick={() => setCurrentStep("name")}
@@ -641,7 +635,12 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                   <div>
                     <span className="text-gray-400">AI Models:</span>
                     <div className="font-medium text-orange-400">
-                      {premiumEnabled ? "Premium" : "Standard"}
+                      {premiumEnabled || isCreator ? "Premium" : "Standard"}
+                      {isCreator && (
+                        <span className="ml-2 text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded">
+                          Creator
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div>
@@ -737,7 +736,7 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
 
               <div className="flex gap-4">
                 <button
-                  onClick={() => setCurrentStep("premium")}
+                  onClick={() => setCurrentStep(isCreator ? "name" : "premium")}
                   className="btn-ghost flex-1"
                 >
                   Back
@@ -759,6 +758,12 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
             🕵️‍♂️ AI players are disguised with human names • 🤖 Can you detect
             them all?
           </p>
+          {isCreator && (
+            <p className="mt-2 text-orange-400">
+              <Crown className="w-4 h-4 inline mr-1" />
+              Creator Mode: Premium features automatically enabled
+            </p>
+          )}
         </motion.div>
       </div>
     </div>
