@@ -1,4 +1,4 @@
-// src/app/admin/page.tsx - Creator Admin Dashboard
+// src/app/admin/page.tsx - Updated with graceful error handling
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -38,6 +38,8 @@ import {
   Wifi,
   Server,
   Home,
+  ExternalLink,
+  Info,
 } from "lucide-react";
 import Link from "next/link";
 import toast from "react-hot-toast";
@@ -95,6 +97,12 @@ export default function AdminDashboard() {
   const [serverStats, setServerStats] = useState<ServerStats | null>(null);
   const [aiModelStats, setAiModelStats] = useState<AIModelStats[]>([]);
   const [isCreatingAIGame, setIsCreatingAIGame] = useState(false);
+  const [endpointStatus, setEndpointStatus] = useState({
+    activeGames: false,
+    exportData: false,
+    terminateGame: false,
+    aiOnlyGame: false,
+  });
   const [aiGameConfig, setAiGameConfig] = useState({
     modelDistribution: "balanced",
     difficulty: "medium",
@@ -111,7 +119,7 @@ export default function AdminDashboard() {
     lastUpdate: new Date(),
   });
 
-  const { socket } = useSocket();
+  const { socket, serverStats: socketServerStats } = useSocket();
 
   const verifyCreatorAccess = async () => {
     if (!password.trim()) {
@@ -142,7 +150,8 @@ export default function AdminDashboard() {
           duration: 5000,
         });
 
-        // Start fetching creator data
+        // Check which endpoints are available and start fetching data
+        await checkEndpointAvailability();
         await Promise.all([
           fetchActiveGames(),
           fetchServerStats(),
@@ -161,7 +170,50 @@ export default function AdminDashboard() {
     }
   };
 
+  const checkEndpointAvailability = async () => {
+    const endpoints = {
+      activeGames: "/api/creator/active-games",
+      exportData: "/api/creator/export-data",
+      terminateGame: "/api/creator/terminate-game",
+      aiOnlyGame: "/api/creator/ai-only-game",
+    };
+
+    const status = { ...endpointStatus };
+
+    for (const [key, endpoint] of Object.entries(endpoints)) {
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}${endpoint}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          }
+        );
+
+        // 404 means endpoint doesn't exist, 401/400 means it exists but auth failed
+        status[key as keyof typeof status] = response.status !== 404;
+      } catch (error) {
+        status[key as keyof typeof status] = false;
+      }
+    }
+
+    setEndpointStatus(status);
+
+    if (!Object.values(status).every(Boolean)) {
+      toast("Some creator features are not yet deployed", {
+        icon: "⚠️",
+        duration: 8000,
+      });
+    }
+  };
+
   const fetchActiveGames = async () => {
+    if (!endpointStatus.activeGames) {
+      console.log("Active games endpoint not available");
+      return;
+    }
+
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/creator/active-games`,
@@ -177,6 +229,10 @@ export default function AdminDashboard() {
       if (response.ok) {
         const data = await response.json();
         setActiveGames(data.games || []);
+      } else if (response.status === 404) {
+        console.log(
+          "Active games endpoint not found - feature not deployed yet"
+        );
       }
     } catch (error) {
       console.error("Failed to fetch active games:", error);
@@ -197,7 +253,7 @@ export default function AdminDashboard() {
           activeGames: data.rooms?.activeRooms || 0,
           totalPlayers: data.server?.uptime
             ? Math.floor(data.server.uptime / 60) + 1247
-            : 1247,
+            : socketServerStats?.totalPlayers || 0,
           aiModelsActive: Array.isArray(data.ai)
             ? data.ai.length
             : Object.keys(data.ai || {}).length,
@@ -212,7 +268,8 @@ export default function AdminDashboard() {
           },
           uptime: data.server?.uptime || 0,
           networkTraffic: Math.round(Math.random() * 1000 + 500),
-          activeConnections: data.rooms?.totalPlayers || 0,
+          activeConnections:
+            data.rooms?.totalPlayers || socketServerStats?.totalPlayers || 0,
         });
       }
     } catch (error) {
@@ -291,6 +348,14 @@ export default function AdminDashboard() {
   }, []);
 
   const createAIOnlyGame = async () => {
+    if (!endpointStatus.aiOnlyGame) {
+      toast.error(
+        "AI-only game creation not yet deployed. Use regular game creation instead."
+      );
+      router.push("/play?creator=true");
+      return;
+    }
+
     setIsCreatingAIGame(true);
 
     try {
@@ -349,6 +414,11 @@ export default function AdminDashboard() {
   };
 
   const exportAllGameData = async () => {
+    if (!endpointStatus.exportData) {
+      toast.error("Data export feature not yet deployed");
+      return;
+    }
+
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/creator/export-data`,
@@ -391,7 +461,7 @@ export default function AdminDashboard() {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [isVerified]);
+  }, [isVerified, endpointStatus]);
 
   // Start real-time updates when verified
   useEffect(() => {
@@ -518,7 +588,7 @@ export default function AdminDashboard() {
 
           <div className="flex items-center gap-2">
             <Link
-              href="/play"
+              href="/play?creator=true"
               className="btn-detective px-4 py-2 text-sm flex items-center gap-2"
             >
               <Gamepad2 className="w-4 h-4" />
@@ -555,6 +625,12 @@ export default function AdminDashboard() {
               <Eye className="w-4 h-4" />
               Advanced Analytics
             </div>
+            {!Object.values(endpointStatus).every(Boolean) && (
+              <div className="flex items-center gap-2 text-yellow-400">
+                <AlertTriangle className="w-4 h-4" />
+                Some features pending deployment
+              </div>
+            )}
             <div className="ml-auto text-xs text-gray-500">
               Last update: {realTimeData.lastUpdate.toLocaleTimeString()}
             </div>
@@ -595,12 +671,52 @@ export default function AdminDashboard() {
               exit={{ opacity: 0, x: -20 }}
               className="space-y-6"
             >
+              {/* Deployment Status */}
+              {!Object.values(endpointStatus).every(Boolean) && (
+                <div className="glass-card p-6 border-l-4 border-yellow-500">
+                  <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-yellow-400" />
+                    Backend Deployment Status
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {Object.entries(endpointStatus).map(
+                      ([feature, available]) => (
+                        <div key={feature} className="flex items-center gap-2">
+                          <div
+                            className={`w-3 h-3 rounded-full ${
+                              available ? "bg-green-400" : "bg-red-400"
+                            }`}
+                          />
+                          <span className="text-sm capitalize">
+                            {feature.replace(/([A-Z])/g, " $1").trim()}
+                          </span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                  <div className="mt-4 p-4 bg-blue-500/10 rounded-lg">
+                    <p className="text-sm text-blue-400">
+                      <Info className="w-4 h-4 inline mr-2" />
+                      Missing endpoints can be added to your backend server.
+                      <a
+                        href="#backend-routes"
+                        className="underline ml-1 hover:text-blue-300"
+                      >
+                        See required routes below.
+                      </a>
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Performance Metrics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="glass-card p-4 text-center">
                   <Activity className="w-8 h-8 text-blue-400 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-blue-400">
-                    {serverStats?.activeGames || 0}
+                    {serverStats?.activeGames ||
+                      socketServerStats?.activeGames ||
+                      0}
                   </div>
                   <div className="text-sm text-gray-400">Active Games</div>
                 </div>
@@ -608,7 +724,9 @@ export default function AdminDashboard() {
                 <div className="glass-card p-4 text-center">
                   <Users className="w-8 h-8 text-orange-400 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-orange-400">
-                    {serverStats?.totalPlayers || 0}
+                    {serverStats?.totalPlayers ||
+                      socketServerStats?.totalPlayers ||
+                      0}
                   </div>
                   <div className="text-sm text-gray-400">Total Players</div>
                 </div>
@@ -636,8 +754,13 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <button
                     onClick={createAIOnlyGame}
-                    disabled={isCreatingAIGame}
-                    className="btn-detective py-4 flex items-center justify-center gap-2"
+                    disabled={isCreatingAIGame || !endpointStatus.aiOnlyGame}
+                    className="btn-detective py-4 flex items-center justify-center gap-2 disabled:opacity-50"
+                    title={
+                      !endpointStatus.aiOnlyGame
+                        ? "Feature not deployed yet"
+                        : ""
+                    }
                   >
                     {isCreatingAIGame ? (
                       <>
@@ -652,12 +775,15 @@ export default function AdminDashboard() {
                       <>
                         <Bot className="w-5 h-5" />
                         Create AI-Only Game
+                        {!endpointStatus.aiOnlyGame && (
+                          <AlertTriangle className="w-4 h-4 ml-2 text-yellow-400" />
+                        )}
                       </>
                     )}
                   </button>
 
                   <Link
-                    href="/play"
+                    href="/play?creator=true"
                     className="btn-secondary py-4 flex items-center justify-center gap-2"
                   >
                     <Gamepad2 className="w-5 h-5" />
@@ -666,10 +792,19 @@ export default function AdminDashboard() {
 
                   <button
                     onClick={exportAllGameData}
-                    className="btn-ghost py-4 flex items-center justify-center gap-2"
+                    disabled={!endpointStatus.exportData}
+                    className="btn-ghost py-4 flex items-center justify-center gap-2 disabled:opacity-50"
+                    title={
+                      !endpointStatus.exportData
+                        ? "Feature not deployed yet"
+                        : ""
+                    }
                   >
                     <Download className="w-5 h-5" />
                     Export Data
+                    {!endpointStatus.exportData && (
+                      <AlertTriangle className="w-4 h-4 ml-2 text-yellow-400" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -754,234 +889,191 @@ export default function AdminDashboard() {
             >
               {/* AI Game Creator */}
               <div className="glass-card p-6">
-                <h3 className="text-xl font-bold mb-4">AI Game Creator</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Model Distribution
-                      </label>
-                      <select
-                        value={aiGameConfig.modelDistribution}
-                        onChange={(e) =>
-                          setAiGameConfig({
-                            ...aiGameConfig,
-                            modelDistribution: e.target.value,
-                          })
-                        }
-                        className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2"
-                      >
-                        <option value="balanced">Balanced Mix</option>
-                        <option value="premium">Premium Only</option>
-                        <option value="basic">Basic Only</option>
-                        <option value="experimental">Experimental</option>
-                      </select>
-                    </div>
+                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-blue-400" />
+                  AI Game Creator
+                  {!endpointStatus.aiOnlyGame && (
+                    <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">
+                      Feature Pending
+                    </span>
+                  )}
+                </h3>
 
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Difficulty Level
-                      </label>
-                      <select
-                        value={aiGameConfig.difficulty}
-                        onChange={(e) =>
-                          setAiGameConfig({
-                            ...aiGameConfig,
-                            difficulty: e.target.value,
-                          })
-                        }
-                        className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2"
-                      >
-                        <option value="easy">Easy (Obvious tells)</option>
-                        <option value="medium">Medium (Balanced)</option>
-                        <option value="hard">Hard (Human-like)</option>
-                        <option value="expert">Expert (Nearly perfect)</option>
-                      </select>
-                    </div>
+                {!endpointStatus.aiOnlyGame ? (
+                  <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <p className="text-yellow-400 mb-4">
+                      AI-only game creation endpoint not deployed yet. Use
+                      regular game creation for now:
+                    </p>
+                    <Link href="/play?creator=true" className="btn-detective">
+                      <Gamepad2 className="w-4 h-4 mr-2" />
+                      Create Premium Game Instead
+                    </Link>
                   </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Max Players
-                      </label>
-                      <select
-                        value={aiGameConfig.maxPlayers}
-                        onChange={(e) =>
-                          setAiGameConfig({
-                            ...aiGameConfig,
-                            maxPlayers: parseInt(e.target.value),
-                          })
-                        }
-                        className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2"
-                      >
-                        <option value={6}>6 Players</option>
-                        <option value={8}>8 Players</option>
-                        <option value={10}>10 Players</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Game Mode
-                      </label>
-                      <select
-                        value={aiGameConfig.gameMode}
-                        onChange={(e) =>
-                          setAiGameConfig({
-                            ...aiGameConfig,
-                            gameMode: e.target.value,
-                          })
-                        }
-                        className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2"
-                      >
-                        <option value="classic">Classic Mafia</option>
-                        <option value="turbo">Turbo Mode</option>
-                        <option value="extended">Extended Discussion</option>
-                        <option value="research">Research Mode</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          id="observeMode"
-                          checked={aiGameConfig.observeMode}
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* AI Game Config UI here */}
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          Model Distribution
+                        </label>
+                        <select
+                          value={aiGameConfig.modelDistribution}
                           onChange={(e) =>
                             setAiGameConfig({
                               ...aiGameConfig,
-                              observeMode: e.target.checked,
+                              modelDistribution: e.target.value,
                             })
                           }
-                        />
-                        <label htmlFor="observeMode" className="text-sm">
-                          Auto-join as observer
-                        </label>
+                          className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2"
+                        >
+                          <option value="balanced">Balanced Mix</option>
+                          <option value="premium">Premium Only</option>
+                          <option value="basic">Basic Only</option>
+                        </select>
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          id="autoStart"
-                          checked={aiGameConfig.autoStart}
-                          onChange={(e) =>
-                            setAiGameConfig({
-                              ...aiGameConfig,
-                              autoStart: e.target.checked,
-                            })
-                          }
-                        />
-                        <label htmlFor="autoStart" className="text-sm">
-                          Auto-start game
-                        </label>
-                      </div>
+                      <button
+                        onClick={createAIOnlyGame}
+                        disabled={isCreatingAIGame}
+                        className="btn-detective w-full py-3"
+                      >
+                        {isCreatingAIGame ? (
+                          <>
+                            <div className="loading-dots mr-2">
+                              <span></span>
+                              <span></span>
+                              <span></span>
+                            </div>
+                            Creating Game...
+                          </>
+                        ) : (
+                          <>
+                            <Bot className="w-4 h-4 mr-2" />
+                            Create AI Game
+                          </>
+                        )}
+                      </button>
                     </div>
-
-                    <button
-                      onClick={createAIOnlyGame}
-                      disabled={isCreatingAIGame}
-                      className="btn-detective w-full py-3"
-                    >
-                      {isCreatingAIGame ? (
-                        <>
-                          <div className="loading-dots mr-2">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                          </div>
-                          Creating Game...
-                        </>
-                      ) : (
-                        <>
-                          <Bot className="w-4 h-4 mr-2" />
-                          Create AI Game
-                        </>
-                      )}
-                    </button>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Active Games */}
               <div className="glass-card p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-bold">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <Monitor className="w-5 h-5 text-green-400" />
                     Active Games ({activeGames.length})
+                    {!endpointStatus.activeGames && (
+                      <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">
+                        Endpoint Missing
+                      </span>
+                    )}
                   </h3>
                   <button
                     onClick={fetchActiveGames}
-                    className="btn-ghost px-4 py-2 text-sm flex items-center gap-2"
+                    disabled={!endpointStatus.activeGames}
+                    className="btn-ghost px-4 py-2 text-sm flex items-center gap-2 disabled:opacity-50"
                   >
                     <RefreshCw className="w-4 h-4" />
                     Refresh
                   </button>
                 </div>
 
-                <div className="space-y-3">
-                  {activeGames.map((game) => (
-                    <div
-                      key={game.id}
-                      className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div
-                          className={`w-3 h-3 rounded-full ${
-                            game.status === "active"
-                              ? "bg-green-400 animate-pulse"
-                              : game.status === "waiting"
-                              ? "bg-yellow-400"
-                              : "bg-red-400"
-                          }`}
-                        />
-                        <div>
-                          <div className="font-bold text-lg flex items-center gap-2">
-                            {game.roomCode}
-                            {game.isAIOnly && (
-                              <span className="bg-orange-500/20 text-orange-400 px-2 py-1 rounded text-xs">
-                                AI-ONLY
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-sm text-gray-400">
-                            {game.playerCount}/10 players • {game.phase} •{" "}
-                            {new Date(game.createdAt).toLocaleTimeString()}
+                {!endpointStatus.activeGames ? (
+                  <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <p className="text-blue-400">
+                      Active games endpoint not available. This feature requires
+                      backend deployment.
+                    </p>
+                  </div>
+                ) : activeGames.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <Bot className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <div className="text-lg font-medium mb-2">
+                      No active games
+                    </div>
+                    <div className="text-sm">
+                      Create an AI-only game to get started!
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {activeGames.map((game) => (
+                      <div
+                        key={game.id}
+                        className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div
+                            className={`w-3 h-3 rounded-full ${
+                              game.status === "active"
+                                ? "bg-green-400 animate-pulse"
+                                : game.status === "waiting"
+                                ? "bg-yellow-400"
+                                : "bg-red-400"
+                            }`}
+                          />
+                          <div>
+                            <div className="font-bold text-lg flex items-center gap-2">
+                              {game.roomCode}
+                              {game.isAIOnly && (
+                                <span className="bg-orange-500/20 text-orange-400 px-2 py-1 rounded text-xs">
+                                  AI-ONLY
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-400">
+                              {game.playerCount}/10 players • {game.phase} •{" "}
+                              {new Date(game.createdAt).toLocaleTimeString()}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => joinGameAsObserver(game.roomCode)}
-                          className="btn-detective px-3 py-1 text-sm"
-                        >
-                          <Eye className="w-3 h-3 mr-1" />
-                          Watch
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => joinGameAsObserver(game.roomCode)}
+                            className="btn-detective px-3 py-1 text-sm"
+                          >
+                            <Eye className="w-3 h-3 mr-1" />
+                            Watch
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-
-                  {activeGames.length === 0 && (
-                    <div className="text-center py-8 text-gray-400">
-                      <Bot className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                      <div className="text-lg font-medium mb-2">
-                        No active games
-                      </div>
-                      <div className="text-sm">
-                        Create an AI-only game to get started!
-                      </div>
-                    </div>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
 
-          {/* Other tabs would be implemented similarly... */}
+          {/* Other tabs would show similar patterns */}
         </AnimatePresence>
+      </div>
+
+      {/* Backend Implementation Guide */}
+      <div id="backend-routes" className="max-w-7xl mx-auto p-6">
+        <div className="glass-card p-6">
+          <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+            <ExternalLink className="w-5 h-5 text-blue-400" />
+            Missing Backend Endpoints
+          </h3>
+          <p className="text-gray-400 mb-4">
+            Add these routes to your backend server to enable full creator
+            functionality:
+          </p>
+          <div className="bg-gray-900 rounded-lg p-4 font-mono text-sm text-green-400">
+            <div>POST /api/creator/active-games</div>
+            <div>POST /api/creator/export-data</div>
+            <div>POST /api/creator/terminate-game</div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            The frontend will automatically detect and enable features as
+            endpoints become available.
+          </p>
+        </div>
       </div>
     </div>
   );
