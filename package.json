@@ -8,15 +8,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit",
-    "export": "next export"
+    "type-check": "tsc --noEmit"
   },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
   },
   "dependencies": {
-    "clsx": "^2.0.0",
+    "clsx": "^2.1.0",
     "framer-motion": "^11.0.0",
     "lucide-react": "^0.263.1",
     "next": "^15.3.0",
@@ -31,7 +30,6 @@
     "@types/node": "^22.13.9",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "critters": "^0.0.24",
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.3.0",
     "typescript": "^5.6.0"
@@ -44,7 +42,8 @@
     "detective",
     "next.js",
     "typescript",
-    "premium"
+    "premium",
+    "turing-test"
   ],
   "author": "AI Mafia Team",
   "license": "MIT"
