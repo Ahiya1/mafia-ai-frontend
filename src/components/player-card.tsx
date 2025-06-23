@@ -1,33 +1,53 @@
-// src/components/player-card.tsx
+// src/components/player-card.tsx - Enhanced with Observer Data
 "use client";
 
 import { motion } from "framer-motion";
-import { Crown, Shield, Users, Skull, Bot, User, Mic } from "lucide-react";
-import { Player } from "../types/game";
+import {
+  User,
+  Bot,
+  Crown,
+  Shield,
+  Users,
+  Skull,
+  Eye,
+  Brain,
+  Activity,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+} from "lucide-react";
+import { Player } from "@/types/game";
+import { usePlayerSuspicion } from "@/stores/game-store";
 
 interface PlayerCardProps {
   player: Player;
-  isCurrentPlayer: boolean;
-  currentSpeaker: boolean;
-  showRole: boolean;
+  isCurrentPlayer?: boolean;
+  showRole?: boolean;
+  onClick?: () => void;
+  compact?: boolean;
+  showObserverData?: boolean;
 }
 
 export function PlayerCard({
   player,
-  isCurrentPlayer,
-  currentSpeaker,
-  showRole,
+  isCurrentPlayer = false,
+  showRole = false,
+  onClick,
+  compact = false,
+  showObserverData = false,
 }: PlayerCardProps) {
+  const { suspicion, trust } = usePlayerSuspicion(player.id);
+
   const getRoleIcon = () => {
     switch (player.role) {
       case "mafia_leader":
-        return <Crown className="w-4 h-4" />;
+        return <Crown className="w-4 h-4 text-red-400" />;
       case "mafia_member":
-        return <Skull className="w-4 h-4" />;
+        return <Skull className="w-4 h-4 text-red-400" />;
       case "healer":
-        return <Shield className="w-4 h-4" />;
+        return <Shield className="w-4 h-4 text-green-400" />;
       case "citizen":
-        return <Users className="w-4 h-4" />;
+        return <Users className="w-4 h-4 text-blue-400" />;
       default:
         return null;
     }
@@ -37,106 +57,309 @@ export function PlayerCard({
     switch (player.role) {
       case "mafia_leader":
       case "mafia_member":
-        return "border-red-500 bg-red-500/10";
+        return "border-red-500/30 bg-red-500/10";
       case "healer":
-        return "border-green-500 bg-green-500/10";
+        return "border-green-500/30 bg-green-500/10";
       case "citizen":
-        return "border-blue-500 bg-blue-500/10";
+        return "border-blue-500/30 bg-blue-500/10";
       default:
-        return "border-gray-500 bg-gray-500/10";
+        return "border-gray-600 bg-gray-800";
     }
   };
 
+  const getSuspicionIcon = (level: number) => {
+    if (level > 7) return <TrendingUp className="w-3 h-3 text-red-400" />;
+    if (level < 4) return <TrendingDown className="w-3 h-3 text-green-400" />;
+    return <Minus className="w-3 h-3 text-gray-400" />;
+  };
+
+  const getSuspicionColor = (level: number) => {
+    if (level > 7) return "text-red-400";
+    if (level < 4) return "text-green-400";
+    return "text-gray-400";
+  };
+
+  if (compact) {
+    return (
+      <motion.div
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={onClick}
+        className={`
+          flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer
+          ${
+            player.isAlive
+              ? isCurrentPlayer
+                ? "border-purple-500/50 bg-purple-500/10"
+                : "border-gray-600 bg-gray-800"
+              : "border-gray-700 bg-gray-900 opacity-60"
+          }
+          ${onClick ? "hover:border-gray-500" : ""}
+        `}
+      >
+        {/* Status Indicator */}
+        <div
+          className={`w-2 h-2 rounded-full ${
+            player.isAlive ? "bg-green-400" : "bg-red-400"
+          }`}
+        />
+
+        {/* Player Type Icon */}
+        {player.type === "ai" ? (
+          <Bot className="w-4 h-4 text-orange-400" />
+        ) : (
+          <User className="w-4 h-4 text-blue-400" />
+        )}
+
+        {/* Name */}
+        <span className="font-medium text-white text-sm truncate">
+          {player.name}
+        </span>
+
+        {/* Role Icon */}
+        {showRole && getRoleIcon()}
+
+        {/* AI Model Badge */}
+        {player.type === "ai" && player.model && (
+          <span className="text-xs px-1 py-0.5 bg-orange-500/20 text-orange-400 rounded">
+            {player.model.split("-")[0]}
+          </span>
+        )}
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
       className={`
-        player-card relative overflow-hidden
-        ${isCurrentPlayer ? "ring-2 ring-blue-400" : ""}
-        ${currentSpeaker ? "ring-2 ring-orange-400 ring-pulse" : ""}
-        ${!player.isAlive ? "eliminated" : "alive"}
-        ${showRole && player.role ? getRoleColor() : ""}
+        p-4 rounded-lg border transition-all
+        ${
+          player.isAlive
+            ? isCurrentPlayer
+              ? "border-purple-500/50 bg-purple-500/10"
+              : getRoleColor()
+            : "border-gray-700 bg-gray-900 opacity-60"
+        }
+        ${onClick ? "cursor-pointer hover:border-gray-500" : ""}
       `}
     >
-      {/* Speaking indicator */}
-      {currentSpeaker && (
-        <motion.div
-          animate={{ scale: [1, 1.1, 1] }}
-          transition={{ duration: 1, repeat: Infinity }}
-          className="absolute top-2 right-2 w-3 h-3 bg-orange-400 rounded-full"
-        />
-      )}
-
-      {/* Player info */}
-      <div className="flex items-center gap-3">
-        <div className="relative">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {/* Status Indicator */}
           <div
-            className={`
-            w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold
-            ${
-              player.type === "ai"
-                ? "bg-orange-500/20 text-orange-400"
-                : "bg-blue-500/20 text-blue-400"
-            }
-          `}
-          >
-            {player.type === "ai" ? (
-              <Bot className="w-5 h-5" />
-            ) : (
-              <User className="w-5 h-5" />
-            )}
-          </div>
+            className={`w-3 h-3 rounded-full ${
+              player.isAlive ? "bg-green-400" : "bg-red-400"
+            }`}
+          />
 
-          {!player.isAlive && (
-            <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-              <Skull className="w-2 h-2 text-white" />
-            </div>
-          )}
-        </div>
+          {/* Player Name */}
+          <span className="font-medium text-white">{player.name}</span>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className={`font-medium truncate ${
-                !player.isAlive ? "text-gray-500" : "text-white"
-              }`}
-            >
-              {player.name}
+          {/* Current Player Badge */}
+          {isCurrentPlayer && (
+            <span className="text-xs px-2 py-1 bg-purple-500/20 text-purple-400 rounded">
+              You
             </span>
-            {isCurrentPlayer && (
-              <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">
-                You
-              </span>
-            )}
-          </div>
-
-          {showRole && player.role && (
-            <div className="flex items-center gap-1 mt-1">
-              {getRoleIcon()}
-              <span className="text-xs capitalize">
-                {player.role.replace("_", " ")}
-              </span>
-            </div>
-          )}
-
-          {player.type === "ai" && (
-            <div className="text-xs text-orange-400 mt-1">AI Player</div>
           )}
         </div>
 
-        {currentSpeaker && (
-          <Mic className="w-4 h-4 text-orange-400 animate-pulse" />
-        )}
+        {/* Player Type */}
+        <div className="flex items-center gap-1">
+          {player.type === "ai" ? (
+            <Bot className="w-4 h-4 text-orange-400" />
+          ) : (
+            <User className="w-4 h-4 text-blue-400" />
+          )}
+        </div>
       </div>
 
-      {/* Voting indicator */}
-      {player.votedFor && (
-        <div className="mt-2 text-xs text-gray-400">
-          Voted for: <span className="text-red-400">{player.votedFor}</span>
+      {/* Role Display */}
+      {showRole && player.role && (
+        <div className="flex items-center gap-2 mb-3">
+          {getRoleIcon()}
+          <span className="text-sm font-medium capitalize">
+            {player.role.replace("_", " ")}
+          </span>
+        </div>
+      )}
+
+      {/* AI Model Badge */}
+      {player.type === "ai" && player.model && (
+        <div className="mb-3">
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-orange-500/20 text-orange-400 rounded">
+            <Brain className="w-3 h-3" />
+            {player.model}
+          </span>
+        </div>
+      )}
+
+      {/* Observer Data */}
+      {showObserverData && (
+        <div className="space-y-2 mt-3 pt-3 border-t border-gray-700">
+          {/* Suspicion Level */}
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-1">
+              <Eye className="w-3 h-3 text-gray-400" />
+              <span className="text-gray-400">Suspicion</span>
+            </div>
+            <div
+              className={`flex items-center gap-1 ${getSuspicionColor(
+                suspicion
+              )}`}
+            >
+              {getSuspicionIcon(suspicion)}
+              <span className="font-medium">{suspicion.toFixed(1)}/10</span>
+            </div>
+          </div>
+
+          {/* Trust Level */}
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-1">
+              <Shield className="w-3 h-3 text-gray-400" />
+              <span className="text-gray-400">Trust</span>
+            </div>
+            <div
+              className={`flex items-center gap-1 ${getSuspicionColor(
+                10 - trust
+              )}`}
+            >
+              {getSuspicionIcon(10 - trust)}
+              <span className="font-medium">{trust.toFixed(1)}/10</span>
+            </div>
+          </div>
+
+          {/* Activity Level */}
+          {player.gameStats && (
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-1">
+                <Activity className="w-3 h-3 text-gray-400" />
+                <span className="text-gray-400">Activity</span>
+              </div>
+              <span className="text-white font-medium">
+                {player.gameStats.gamesPlayed || 0} actions
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Ready Status */}
+      {!player.isAlive && (
+        <div className="mt-3 text-center">
+          <span className="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded">
+            Eliminated
+          </span>
+        </div>
+      )}
+
+      {player.isAlive && player.isReady && (
+        <div className="mt-3 text-center">
+          <span className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded">
+            Ready
+          </span>
         </div>
       )}
     </motion.div>
   );
+}
+
+// Specialized component for observer view
+export function ObserverPlayerCard({
+  player,
+  showAllData = true,
+}: {
+  player: Player;
+  showAllData?: boolean;
+}) {
+  const { suspicion, trust } = usePlayerSuspicion(player.id);
+
+  return (
+    <div
+      className={`
+      p-3 rounded-lg border
+      ${
+        player.isAlive
+          ? "border-gray-600 bg-gray-800"
+          : "border-gray-700 bg-gray-900 opacity-60"
+      }
+    `}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div
+            className={`w-2 h-2 rounded-full ${
+              player.isAlive ? "bg-green-400" : "bg-red-400"
+            }`}
+          />
+          <span className="font-medium text-white text-sm">{player.name}</span>
+        </div>
+
+        {player.type === "ai" ? (
+          <Bot className="w-3 h-3 text-orange-400" />
+        ) : (
+          <User className="w-3 h-3 text-blue-400" />
+        )}
+      </div>
+
+      {/* Role */}
+      {player.role && (
+        <div className="flex items-center gap-1 mb-2">
+          {player.role === "mafia_leader" && (
+            <Crown className="w-3 h-3 text-red-400" />
+          )}
+          {player.role === "mafia_member" && (
+            <Skull className="w-3 h-3 text-red-400" />
+          )}
+          {player.role === "healer" && (
+            <Shield className="w-3 h-3 text-green-400" />
+          )}
+          {player.role === "citizen" && (
+            <Users className="w-3 h-3 text-blue-400" />
+          )}
+          <span className="text-xs text-gray-300 capitalize">
+            {player.role.replace("_", " ")}
+          </span>
+        </div>
+      )}
+
+      {/* AI Model */}
+      {player.type === "ai" && player.model && (
+        <div className="mb-2">
+          <span className="text-xs px-1 py-0.5 bg-orange-500/20 text-orange-400 rounded">
+            {player.model}
+          </span>
+        </div>
+      )}
+
+      {/* Observer Stats */}
+      {showAllData && (
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="text-center">
+            <div className="text-gray-400">Suspicion</div>
+            <div className={`font-medium ${getSuspicionColor(suspicion)}`}>
+              {suspicion.toFixed(1)}
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-gray-400">Trust</div>
+            <div className={`font-medium ${getSuspicionColor(10 - trust)}`}>
+              {trust.toFixed(1)}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Helper function for suspicion color (extracted for reuse)
+function getSuspicionColor(level: number): string {
+  if (level > 7) return "text-red-400";
+  if (level < 4) return "text-green-400";
+  return "text-gray-400";
 }

@@ -1,751 +1,556 @@
-// src/app/game/[roomCode]/page.tsx - Individual Game Room
+// src/app/game/[roomCode]/page.tsx - Updated with Observer Mode
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import {
+  ArrowLeft,
   Users,
-  MessageCircle,
-  Vote as VoteIcon,
-  Crown,
-  Shield,
-  Skull,
-  Clock,
-  Send,
+  Eye,
   Settings,
-  ExternalLink,
-  Copy,
-  Share2,
-  Home,
-  Mic,
-  MicOff,
+  Play,
+  Pause,
   Volume2,
   VolumeX,
-  BarChart3,
-  Package,
-  Unlock,
-  Eye,
-  EyeOff,
+  Monitor,
+  User,
 } from "lucide-react";
-import Link from "next/link";
 import { useSocket } from "@/lib/socket-context";
-import { GameState, Player, Message, Vote } from "@/types/game";
-import { PlayerCard } from "@/components/player-card";
+import { useGameStore } from "@/stores/game-store";
 import { ChatArea } from "@/components/chat-area";
-import { GamePhaseDisplay } from "@/components/game-phase-display";
 import { VotingPanel } from "@/components/voting-panel";
 import { NightActionPanel } from "@/components/night-action-panel";
-import { GameStats } from "@/components/game-stats";
-import { PremiumAnalytics } from "@/components/premium-analytics";
-import { CreatorAccess } from "@/components/creator-access";
-import { PackageManagement } from "@/components/package-management";
-import { useGameStore } from "@/stores/game-store";
-import toast from "react-hot-toast";
+import { GamePhaseDisplay } from "@/components/game-phase-display";
+import { ObserverDashboard } from "@/components/observer-dashboard";
+import { PlayerCard } from "@/components/player-card";
 
-export default function GameRoomPage() {
+export default function GamePage() {
   const params = useParams();
   const router = useRouter();
   const roomCode = params.roomCode as string;
 
-  const [gameState, setGameState] = useState<GameState | null>(null);
-  const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [votes, setVotes] = useState<Vote[]>([]);
-  const [timeRemaining, setTimeRemaining] = useState(0);
-  const [isInGame, setIsInGame] = useState(false);
-  const [isSpectator, setIsSpectator] = useState(false);
-  const [playerName, setPlayerName] = useState("");
+  const {
+    socket,
+    isConnected,
+    joinRoom,
+    sendMessage,
+    castVote,
+    performNightAction,
+  } = useSocket();
+  const { gameState, currentPlayer, setGameState, setCurrentPlayer } =
+    useGameStore();
+
+  const [isObserver, setIsObserver] = useState(false);
+  const [observerData, setObserverData] = useState<any>(null);
+  const [showObserverPanel, setShowObserverPanel] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [micEnabled, setMicEnabled] = useState(false);
-  const [showStats, setShowStats] = useState(false);
-  const [showPremiumAnalytics, setShowPremiumAnalytics] = useState(false);
-  const [showCreatorAccess, setShowCreatorAccess] = useState(false);
-  const [showPackageManagement, setShowPackageManagement] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // Premium & Creator state
-  const [isPremiumUser, setIsPremiumUser] = useState(false);
-  const [isCreator, setIsCreator] = useState(false);
-  const [creatorFeatures, setCreatorFeatures] = useState<string[]>([]);
-  const [userPackages, setUserPackages] = useState<any[]>([]);
-
-  const { socket, isConnected, connectionStatus } = useSocket();
-  const gameStore = useGameStore();
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto-join room when component mounts
+  // Initialize connection and join room
   useEffect(() => {
-    if (!socket || !roomCode || !isConnected) return;
+    if (!isConnected || !roomCode) return;
 
-    // Try to join as spectator first to see if room exists
-    const trySpectatorJoin = () => {
-      const spectatorName = `Observer_${Math.random()
-        .toString(36)
-        .substr(2, 4)}`;
-      socket.emit("join_room", {
-        roomCode: roomCode.toUpperCase(),
-        playerName: spectatorName,
-        observerMode: true,
+    const playerName =
+      localStorage.getItem("playerName") || `Player_${Date.now()}`;
+    const playerId = localStorage.getItem("playerId") ?? undefined;
+    const observerMode = localStorage.getItem("observerMode") === "true";
+
+    setIsObserver(observerMode);
+
+    joinRoom({
+      roomCode,
+      playerName,
+      playerId,
+      observerMode,
+    })
+      .then((response) => {
+        setIsLoading(false);
+        if (response.success) {
+          if (observerMode) {
+            console.log("✅ Joined as observer");
+          } else {
+            setCurrentPlayer(response.player);
+            console.log("✅ Joined as player");
+          }
+        } else {
+          setConnectionError(response.message || "Failed to join room");
+        }
+      })
+      .catch((error) => {
+        setIsLoading(false);
+        setConnectionError(error.message || "Connection failed");
       });
-      setIsSpectator(true);
-    };
+  }, [isConnected, roomCode, joinRoom, setCurrentPlayer]);
 
-    trySpectatorJoin();
-  }, [socket, roomCode, isConnected]);
-
-  // Socket event listeners
+  // Socket event handlers
   useEffect(() => {
     if (!socket) return;
 
-    socket.on("observer_joined", (data) => {
-      setIsInGame(true);
-      setIsSpectator(true);
-      setGameState(data.gameState);
-      toast.success(`Watching room ${roomCode} as observer`);
-    });
+    const handleGameStateUpdate = (newGameState: any) => {
+      setGameState(newGameState);
 
-    socket.on("room_joined", (data) => {
-      setIsInGame(true);
-      setIsSpectator(false);
-      setCurrentPlayer(data.player);
-      toast.success(`Joined room ${roomCode}!`);
-    });
-
-    socket.on("game_state_update", (state: GameState) => {
-      setGameState(state);
-      gameStore.setGameState(state);
-    });
-
-    socket.on("message_received", (data) => {
-      setMessages((prev) => [...prev, data.message]);
-      if (soundEnabled && data.message.playerId !== currentPlayer?.id) {
-        playSound("message");
+      // Extract observer data if present
+      if (newGameState.observerData) {
+        setObserverData(newGameState.observerData);
       }
-    });
+    };
 
-    socket.on("vote_cast", (data) => {
-      setVotes((prev) => [...prev, data.vote]);
+    const handleObserverUpdate = (update: any) => {
+      if (isObserver) {
+        setObserverData((prev: { observerUpdates: any }) => ({
+          ...prev,
+          observerUpdates: [
+            ...(prev?.observerUpdates || []),
+            update.update,
+          ].slice(-50), // Keep last 50 updates
+        }));
+
+        // Play notification sound
+        if (soundEnabled) {
+          playNotificationSound();
+        }
+      }
+    };
+
+    const handlePhaseChanged = (data: any) => {
+      // Update game state with new phase
+      if (gameState) {
+        setGameState({
+          ...gameState,
+          phase: data.newPhase,
+          currentRound: data.round,
+          phaseStartTime: new Date().toISOString(),
+          phaseEndTime: new Date(
+            Date.now() + (data.duration || 60000)
+          ).toISOString(),
+        });
+      }
+
+      // Play phase transition sound
       if (soundEnabled) {
-        playSound("vote");
+        playPhaseSound(data.newPhase);
       }
-    });
+    };
 
-    socket.on("phase_changed", (data) => {
+    const handlePlayerEliminated = (data: any) => {
+      // Play elimination sound
       if (soundEnabled) {
-        playSound("phase_change");
+        playEliminationSound();
       }
-    });
+    };
 
-    socket.on("player_eliminated", (data) => {
+    const handleGameEnded = (data: any) => {
+      // Play game end sound
       if (soundEnabled) {
-        playSound("elimination");
+        playGameEndSound(data.winner);
       }
-    });
+    };
 
-    socket.on("game_ended", (data) => {
-      if (soundEnabled) {
-        playSound(data.winner === "citizens" ? "victory" : "defeat");
-      }
-      if (isPremiumUser || isCreator) {
-        setShowPremiumAnalytics(true);
-      } else {
-        setShowStats(true);
-      }
-    });
+    const handleRoomTerminated = (data: any) => {
+      setConnectionError(`Room was terminated: ${data.message}`);
+      setTimeout(() => {
+        router.push("/");
+      }, 3000);
+    };
 
-    socket.on("error", (error) => {
-      if (error.code === "ROOM_NOT_FOUND") {
-        toast.error(`Room ${roomCode} not found`);
-        router.push("/play");
-      } else {
-        toast.error(error.message);
-      }
-    });
+    // Register event listeners
+    socket.on("game_state_update", handleGameStateUpdate);
+    socket.on("observer_update", handleObserverUpdate);
+    socket.on("phase_changed", handlePhaseChanged);
+    socket.on("player_eliminated", handlePlayerEliminated);
+    socket.on("game_ended", handleGameEnded);
+    socket.on("room_terminated", handleRoomTerminated);
 
     return () => {
-      socket.off("observer_joined");
-      socket.off("room_joined");
-      socket.off("game_state_update");
-      socket.off("message_received");
-      socket.off("vote_cast");
-      socket.off("phase_changed");
-      socket.off("player_eliminated");
-      socket.off("game_ended");
-      socket.off("error");
+      socket.off("game_state_update", handleGameStateUpdate);
+      socket.off("observer_update", handleObserverUpdate);
+      socket.off("phase_changed", handlePhaseChanged);
+      socket.off("player_eliminated", handlePlayerEliminated);
+      socket.off("game_ended", handleGameEnded);
+      socket.off("room_terminated", handleRoomTerminated);
     };
-  }, [
-    socket,
-    currentPlayer,
-    soundEnabled,
-    gameStore,
-    isPremiumUser,
-    isCreator,
-    roomCode,
-    router,
-  ]);
+  }, [socket, isObserver, soundEnabled, gameState, setGameState, router]);
 
-  // Timer countdown
-  useEffect(() => {
-    if (!gameState?.phaseEndTime) return;
-
-    const updateTimer = () => {
-      const endTime = new Date(gameState.phaseEndTime).getTime();
-      const now = Date.now();
-      const remaining = Math.max(0, endTime - now);
-      setTimeRemaining(remaining);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [gameState?.phaseEndTime]);
-
-  // Auto-scroll chat
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const playSound = (type: string) => {
-    if (!soundEnabled) return;
-    const audio = new Audio(`/sounds/${type}.mp3`);
-    audio.volume = 0.3;
-    audio.play().catch(() => {});
-  };
-
-  const copyRoomCode = () => {
-    navigator.clipboard.writeText(roomCode);
-    toast.success("Room code copied!");
-  };
-
-  const shareRoom = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: "Join my AI Mafia game!",
-        text: `Join me in playing AI Mafia! Room code: ${roomCode}`,
-        url: window.location.href,
-      });
-    } else {
-      copyRoomCode();
+  // Sound effects
+  const playNotificationSound = () => {
+    try {
+      const audio = new Audio("/sounds/notification.mp3");
+      audio.volume = 0.3;
+      audio.play().catch(() => {}); // Ignore errors
+    } catch (error) {
+      // Ignore sound errors
     }
   };
 
-  const leaveGame = () => {
-    if (socket) {
-      socket.emit("leave_room");
-      router.push("/play");
+  const playPhaseSound = (phase: string) => {
+    try {
+      const soundMap: Record<string, string> = {
+        night: "/sounds/night.mp3",
+        discussion: "/sounds/discussion.mp3",
+        voting: "/sounds/voting.mp3",
+        revelation: "/sounds/revelation.mp3",
+      };
+
+      const soundFile = soundMap[phase];
+      if (soundFile) {
+        const audio = new Audio(soundFile);
+        audio.volume = 0.5;
+        audio.play().catch(() => {});
+      }
+    } catch (error) {
+      // Ignore sound errors
     }
   };
 
-  const joinAsPlayer = () => {
-    const name = prompt("Enter your player name:");
-    if (name && socket) {
-      socket.emit("join_room", {
-        roomCode: roomCode.toUpperCase(),
-        playerName: name.trim(),
-        observerMode: false,
-      });
-      setPlayerName(name.trim());
+  const playEliminationSound = () => {
+    try {
+      const audio = new Audio("/sounds/elimination.mp3");
+      audio.volume = 0.4;
+      audio.play().catch(() => {});
+    } catch (error) {
+      // Ignore sound errors
     }
   };
 
-  const formatTime = (ms: number) => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+  const playGameEndSound = (winner: string) => {
+    try {
+      const audio = new Audio(
+        winner === "citizens" ? "/sounds/victory.mp3" : "/sounds/defeat.mp3"
+      );
+      audio.volume = 0.6;
+      audio.play().catch(() => {});
+    } catch (error) {
+      // Ignore sound errors
+    }
   };
 
-  const handleCreatorVerified = (features: string[]) => {
-    setIsCreator(true);
-    setCreatorFeatures(features);
-    setIsPremiumUser(true);
+  // Game actions
+  const handleSendMessage = (content: string) => {
+    if (currentPlayer && !isObserver) {
+      sendMessage(content);
+    }
   };
 
-  if (!isConnected) {
+  const handleCastVote = (targetId: string, reasoning: string) => {
+    if (currentPlayer && !isObserver) {
+      castVote(targetId, reasoning);
+    }
+  };
+
+  const handleNightAction = (action: string, targetId: string) => {
+    if (currentPlayer && !isObserver) {
+      performNightAction(action as "kill" | "heal", targetId);
+    }
+  };
+
+  const handleLeaveRoom = () => {
+    router.push("/");
+  };
+
+  // Helper functions
+  const getAlivePlayers = () => {
+    if (!gameState?.players) return [];
+    return gameState.players.filter((p: any) => p.isAlive);
+  };
+
+  const getAllPlayers = () => {
+    if (!gameState?.players) return [];
+    return gameState.players;
+  };
+
+  const canSendMessage = () => {
+    if (isObserver || !currentPlayer) return false;
+    if (gameState?.phase === "discussion") {
+      return gameState?.currentSpeaker === currentPlayer.id;
+    }
+    return false;
+  };
+
+  const isCurrentVoter = () => {
+    if (isObserver || !currentPlayer) return false;
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="glass-card p-8 text-center max-w-md mx-auto">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 animate-pulse" />
-          <h2 className="text-2xl font-bold mb-4">Connecting to Game</h2>
-          <p className="text-gray-400 mb-6">Connecting to room {roomCode}...</p>
-          <div className="loading-dots justify-center">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
+      gameState?.phase === "voting" &&
+      gameState?.currentSpeaker === currentPlayer.id
+    );
+  };
+
+  const shouldShowNightPanel = () => {
+    if (isObserver || !currentPlayer) return false;
+    return (
+      gameState?.phase === "night" &&
+      (currentPlayer.role === "mafia_leader" || currentPlayer.role === "healer")
+    );
+  };
+
+  // Loading and error states
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+          <p className="text-gray-400">Connecting to game...</p>
         </div>
       </div>
     );
   }
 
-  if (!isInGame) {
+  if (connectionError) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="glass-card p-8 text-center max-w-md mx-auto">
-          <h2 className="text-2xl font-bold mb-4">Room {roomCode}</h2>
-          <p className="text-gray-400 mb-6">
-            {connectionStatus === "connecting"
-              ? "Connecting..."
-              : "Room not found or connection failed"}
-          </p>
-          <div className="flex gap-3">
-            <button
-              onClick={() => router.push("/play")}
-              className="btn-ghost flex-1"
-            >
-              Back to Lobby
-            </button>
-            <button onClick={joinAsPlayer} className="btn-detective flex-1">
-              Join as Player
-            </button>
-          </div>
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="text-red-400 text-xl mb-4">Connection Error</div>
+          <p className="text-gray-400 mb-6">{connectionError}</p>
+          <button onClick={handleLeaveRoom} className="btn-detective px-6 py-2">
+            Return to Lobby
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       {/* Header */}
-      <header className="border-b border-gray-700 bg-black/20 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-orange-500 rounded-lg flex items-center justify-center text-2xl">
-                🕵️‍♂️
-              </div>
-              <span className="text-xl font-bold text-gradient">AI Mafia</span>
-            </Link>
+      <div className="border-b border-gray-700 bg-gray-900/80 backdrop-blur-sm">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleLeaveRoom}
+                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-400" />
+              </button>
 
-            <div className="glass-card px-4 py-2 flex items-center gap-3">
-              <span className="text-sm font-medium">Room:</span>
-              <span className="text-lg font-bold text-blue-400">
-                {roomCode}
-              </span>
-              <button
-                onClick={copyRoomCode}
-                className="p-1 hover:bg-blue-500/20 rounded transition-colors"
-                title="Copy room code"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
-              <button
-                onClick={shareRoom}
-                className="p-1 hover:bg-blue-500/20 rounded transition-colors"
-                title="Share room"
-              >
-                <Share2 className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-3">
+                <div className="text-lg font-bold text-white">
+                  Room {roomCode}
+                </div>
+                {isObserver ? (
+                  <div className="flex items-center gap-2 px-3 py-1 bg-purple-500/20 text-purple-400 rounded-lg">
+                    <Eye className="w-4 h-4" />
+                    <span className="text-sm font-medium">Observer</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg">
+                    <User className="w-4 h-4" />
+                    <span className="text-sm font-medium">Player</span>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Spectator Mode Indicator */}
-            {isSpectator && (
-              <div className="glass-card px-3 py-1 flex items-center gap-2">
-                <Eye className="w-4 h-4 text-green-400" />
-                <span className="text-sm font-medium text-green-400">
-                  Spectating
-                </span>
-              </div>
-            )}
+            <div className="flex items-center gap-4">
+              {/* Phase Display */}
+              {gameState?.phase && <GamePhaseDisplay phase={gameState.phase} />}
 
-            {/* Creator Badge */}
-            {isCreator && (
-              <div className="glass-card px-3 py-1 flex items-center gap-2">
-                <Crown className="w-4 h-4 text-orange-400" />
-                <span className="text-sm font-medium text-orange-400">
-                  Creator
-                </span>
-              </div>
-            )}
-          </div>
+              {/* Controls */}
+              <div className="flex items-center gap-2">
+                {isObserver && (
+                  <button
+                    onClick={() => setShowObserverPanel(!showObserverPanel)}
+                    className={`p-2 rounded-lg transition-colors ${
+                      showObserverPanel
+                        ? "bg-purple-500/20 text-purple-400"
+                        : "bg-gray-800 text-gray-400 hover:text-gray-300"
+                    }`}
+                    title="Toggle Observer Panel"
+                  >
+                    <Monitor className="w-4 h-4" />
+                  </button>
+                )}
 
-          <div className="flex items-center gap-4">
-            {/* Game Phase & Timer */}
-            {gameState && (
-              <div className="glass-card px-4 py-2 flex items-center gap-3">
-                <GamePhaseDisplay phase={gameState.phase} />
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-orange-400" />
-                  <span className="font-mono text-orange-400">
-                    {formatTime(timeRemaining)}
-                  </span>
+                <button
+                  onClick={() => setSoundEnabled(!soundEnabled)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    soundEnabled
+                      ? "bg-gray-800 text-gray-400 hover:text-gray-300"
+                      : "bg-red-500/20 text-red-400"
+                  }`}
+                  title={soundEnabled ? "Disable Sound" : "Enable Sound"}
+                >
+                  {soundEnabled ? (
+                    <Volume2 className="w-4 h-4" />
+                  ) : (
+                    <VolumeX className="w-4 h-4" />
+                  )}
+                </button>
+
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <Users className="w-4 h-4" />
+                  <span>{getAllPlayers().length}</span>
                 </div>
               </div>
-            )}
-
-            {/* Controls */}
-            <div className="flex items-center gap-2">
-              {!isSpectator && (
-                <>
-                  <button
-                    onClick={() => setSoundEnabled(!soundEnabled)}
-                    className={`p-2 rounded-lg transition-colors ${
-                      soundEnabled
-                        ? "bg-blue-500/20 text-blue-400"
-                        : "bg-gray-700 text-gray-400"
-                    }`}
-                  >
-                    {soundEnabled ? (
-                      <Volume2 className="w-5 h-5" />
-                    ) : (
-                      <VolumeX className="w-5 h-5" />
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => setMicEnabled(!micEnabled)}
-                    className={`p-2 rounded-lg transition-colors ${
-                      micEnabled
-                        ? "bg-red-500/20 text-red-400"
-                        : "bg-gray-700 text-gray-400"
-                    }`}
-                  >
-                    {micEnabled ? (
-                      <Mic className="w-5 h-5" />
-                    ) : (
-                      <MicOff className="w-5 h-5" />
-                    )}
-                  </button>
-                </>
-              )}
-
-              {/* Join as Player button for spectators */}
-              {isSpectator && (
-                <button
-                  onClick={joinAsPlayer}
-                  className="btn-detective px-4 py-2 text-sm flex items-center gap-2"
-                >
-                  <Users className="w-4 h-4" />
-                  Join as Player
-                </button>
-              )}
-
-              <button
-                onClick={() => setShowStats(!showStats)}
-                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-              >
-                <BarChart3 className="w-5 h-5" />
-              </button>
-
-              <button
-                onClick={leaveGame}
-                className="btn-danger px-4 py-2 text-sm flex items-center gap-2"
-              >
-                <Home className="w-4 h-4" />
-                {isSpectator ? "Stop Watching" : "Leave Game"}
-              </button>
             </div>
           </div>
         </div>
-      </header>
+      </div>
 
-      {/* Main Game Area */}
-      <main className="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-[calc(100vh-120px)]">
-        {/* Players Panel */}
-        <div className="lg:col-span-1 space-y-4">
-          <div className="glass-card p-4">
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-blue-400" />
-              Players ({gameState?.players.length || 0}/10)
-            </h3>
-
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {gameState?.players.map((player) => (
+      {/* Main Game Content */}
+      <div className="container mx-auto px-4 py-6">
+        <div
+          className={`grid gap-6 ${
+            isObserver && showObserverPanel ? "grid-cols-3" : "grid-cols-4"
+          }`}
+        >
+          {/* Players Panel */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-bold text-white mb-4">Players</h3>
+            <div className="space-y-2">
+              {getAllPlayers().map((player: any) => (
                 <PlayerCard
                   key={player.id}
                   player={player}
-                  isCurrentPlayer={player.id === currentPlayer?.id}
-                  currentSpeaker={gameState.currentSpeaker === player.id}
-                  showRole={
-                    isSpectator ||
-                    gameState.phase === "game_over" ||
-                    !player.isAlive
+                  isCurrentPlayer={
+                    !isObserver && currentPlayer?.id === player.id
                   }
+                  showRole={isObserver || gameState?.phase === "game_over"}
                 />
               ))}
             </div>
           </div>
 
-          {/* Current Player Info - only show if not spectator */}
-          {!isSpectator && currentPlayer && (
-            <div className="glass-card p-4">
-              <h3 className="text-lg font-bold mb-3">Your Role</h3>
-              <div className="text-center">
-                {currentPlayer.role === "mafia_leader" && (
-                  <div className="badge-mafia p-3 text-base">
-                    <Crown className="w-5 h-5 inline mr-2" />
-                    Mafia Leader
-                  </div>
-                )}
-                {currentPlayer.role === "mafia_member" && (
-                  <div className="badge-mafia p-3 text-base">
-                    <Skull className="w-5 h-5 inline mr-2" />
-                    Mafia Member
-                  </div>
-                )}
-                {currentPlayer.role === "healer" && (
-                  <div className="badge-healer p-3 text-base">
-                    <Shield className="w-5 h-5 inline mr-2" />
-                    Healer
-                  </div>
-                )}
-                {currentPlayer.role === "citizen" && (
-                  <div className="badge-citizen p-3 text-base">
-                    <Users className="w-5 h-5 inline mr-2" />
-                    Citizen
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Chat & Game Area */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Chat Area */}
-          <div className="glass-card h-96 flex flex-col">
-            <div className="p-4 border-b border-gray-700">
-              <h3 className="text-lg font-bold flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-blue-400" />
-                Game Chat
-                {gameState?.phase === "discussion" &&
-                  gameState.currentSpeaker && (
-                    <span className="text-sm text-orange-400">
-                      (
-                      {
-                        gameState.players.find(
-                          (p) => p.id === gameState.currentSpeaker
-                        )?.name
-                      }
-                      's turn)
-                    </span>
-                  )}
-              </h3>
-            </div>
-
-            <ChatArea
-              messages={messages}
-              players={gameState?.players || []}
-              gamePhase={gameState?.phase}
-              canSendMessage={
-                !isSpectator &&
-                gameState?.phase === "discussion" &&
-                gameState.currentSpeaker === currentPlayer?.id &&
-                Boolean(currentPlayer?.isAlive)
-              }
-            />
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Game Actions - only show for non-spectators */}
-          {!isSpectator && (
+          {/* Chat/Actions Panel */}
+          <div
+            className={`${
+              isObserver && showObserverPanel ? "col-span-1" : "col-span-2"
+            } space-y-4`}
+          >
+            {/* Game Phase Content */}
             <AnimatePresence mode="wait">
-              {gameState?.phase === "voting" && currentPlayer?.isAlive && (
+              {shouldShowNightPanel() && (
                 <motion.div
-                  key="voting"
+                  key="night-panel"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="glass-card p-4"
+                  className="glass-card p-6"
                 >
-                  <VotingPanel
-                    players={gameState.players.filter(
-                      (p) => p.isAlive && p.id !== currentPlayer?.id
+                  <NightActionPanel
+                    role={currentPlayer?.role as "mafia_leader" | "healer"}
+                    players={getAlivePlayers().filter((p: any) =>
+                      currentPlayer?.role === "mafia_leader"
+                        ? !p.role?.includes("mafia")
+                        : true
                     )}
-                    currentVoter={
-                      gameState.currentSpeaker === currentPlayer?.id
-                    }
-                    onVoteAction={(targetId: string, reasoning: string) => {
-                      if (socket) {
-                        socket.emit("game_action", {
-                          type: "CAST_VOTE",
-                          targetId,
-                          reasoning,
-                        });
-                      }
-                    }}
+                    onActionPerformed={handleNightAction}
                   />
                 </motion.div>
               )}
 
-              {gameState?.phase === "night" &&
-                currentPlayer?.isAlive &&
-                (currentPlayer.role === "mafia_leader" ||
-                  currentPlayer.role === "healer") && (
-                  <motion.div
-                    key="night-action"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className="glass-card p-4"
-                  >
-                    <NightActionPanel
-                      role={currentPlayer.role}
-                      players={gameState.players.filter(
-                        (p) =>
-                          p.isAlive &&
-                          (currentPlayer.role === "healer" ||
-                            (p.role !== "mafia_leader" &&
-                              p.role !== "mafia_member"))
-                      )}
-                      onActionPerformed={(action: string, targetId: string) => {
-                        if (socket) {
-                          socket.emit("game_action", {
-                            type: "NIGHT_ACTION",
-                            action,
-                            targetId,
-                          });
-                        }
-                      }}
-                    />
-                  </motion.div>
-                )}
+              {isCurrentVoter() && (
+                <motion.div
+                  key="voting-panel"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="glass-card p-6"
+                >
+                  <VotingPanel
+                    players={getAlivePlayers().filter(
+                      (p: any) => p.id !== currentPlayer?.id
+                    )}
+                    currentVoter={true}
+                    onVoteAction={handleCastVote}
+                  />
+                </motion.div>
+              )}
             </AnimatePresence>
-          )}
-        </div>
 
-        {/* Game Info & Stats */}
-        <div className="lg:col-span-1 space-y-4">
-          {/* Round Info */}
-          {gameState && (
-            <div className="glass-card p-4">
-              <h3 className="text-lg font-bold mb-3">Game Status</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Round:</span>
-                  <span className="font-bold text-blue-400">
-                    {gameState.currentRound}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Alive:</span>
-                  <span className="font-bold text-green-400">
-                    {gameState.players.filter((p) => p.isAlive).length}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Eliminated:</span>
-                  <span className="font-bold text-red-400">
-                    {gameState.eliminatedPlayers.length}
-                  </span>
-                </div>
-                {gameState.phase !== "waiting" && (
-                  <div className="flex justify-between">
-                    <span>Phase:</span>
-                    <span className="font-bold text-orange-400 capitalize">
-                      {gameState.phase.replace("_", " ")}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Voting Results */}
-          {votes.length > 0 && (
-            <div className="glass-card p-4">
-              <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-                <VoteIcon className="w-5 h-5 text-orange-400" />
-                Current Votes
-              </h3>
-              <div className="space-y-2 text-sm max-h-32 overflow-y-auto">
-                {votes.map((vote, index) => {
-                  const voter = gameState?.players.find(
-                    (p) => p.id === vote.voterId
-                  );
-                  const target = gameState?.players.find(
-                    (p) => p.id === vote.targetId
-                  );
-                  return (
-                    <div
-                      key={index}
-                      className="flex justify-between items-center py-1"
-                    >
-                      <span>{voter?.name}</span>
-                      <span className="text-gray-400">→</span>
-                      <span className="text-red-400">{target?.name}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Spectator Info */}
-          {isSpectator && (
-            <div className="glass-card p-4">
-              <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-                <Eye className="w-5 h-5 text-green-400" />
-                Spectator Mode
-              </h3>
-              <div className="text-sm text-gray-400 space-y-2">
-                <p>👁️ You can see all player roles</p>
-                <p>💬 View all game communications</p>
-                <p>🎯 Watch AI behavior patterns</p>
-                <p>📊 Full game analytics access</p>
-              </div>
-            </div>
-          )}
-
-          {/* How to Play */}
-          <div className="glass-card p-4">
-            <h3 className="text-lg font-bold mb-3">Game Rules</h3>
-            <div className="text-sm text-gray-400 space-y-2">
-              <p>
-                🕵️‍♂️ <strong>Citizens:</strong> Find and eliminate the mafia
-              </p>
-              <p>
-                🕴️ <strong>Mafia:</strong> Eliminate citizens without being
-                caught
-              </p>
-              <p>
-                🛡️ <strong>Healer:</strong> Protect players from elimination
-              </p>
-              <p>
-                🤖 <strong>AI Players:</strong> Some players are AI - can you
-                tell?
-              </p>
+            {/* Chat Area */}
+            <div className="glass-card h-96">
+              <ChatArea
+                messages={gameState?.messages || []}
+                players={getAllPlayers()}
+                gamePhase={gameState?.phase}
+                canSendMessage={canSendMessage()}
+                onSendMessage={handleSendMessage}
+                observerMode={isObserver}
+                observerUpdates={observerData?.observerUpdates || []}
+              />
             </div>
           </div>
+
+          {/* Observer Dashboard */}
+          {isObserver && showObserverPanel && (
+            <motion.div
+              key="observer-dashboard"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="col-span-1"
+            >
+              <ObserverDashboard
+                gameState={gameState}
+                players={getAllPlayers()}
+                observerUpdates={observerData?.observerUpdates || []}
+                gameAnalytics={observerData?.gameAnalytics}
+              />
+            </motion.div>
+          )}
+
+          {/* Game Info Panel */}
+          {(!isObserver || !showObserverPanel) && (
+            <div className="space-y-4">
+              <div className="glass-card p-4">
+                <h3 className="text-lg font-bold text-white mb-4">Game Info</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Round:</span>
+                    <span className="text-white font-medium">
+                      {gameState?.currentRound || 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Alive:</span>
+                    <span className="text-white font-medium">
+                      {getAlivePlayers().length}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Eliminated:</span>
+                    <span className="text-white font-medium">
+                      {getAllPlayers().length - getAlivePlayers().length}
+                    </span>
+                  </div>
+                  {gameState?.winner && (
+                    <div className="mt-4 p-3 bg-green-500/20 border border-green-500/30 rounded-lg">
+                      <div className="text-green-400 font-bold text-center">
+                        {gameState.winner.toUpperCase()} WIN!
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Your Role (for players only) */}
+              {!isObserver && currentPlayer?.role && (
+                <div className="glass-card p-4">
+                  <h3 className="text-lg font-bold text-white mb-3">
+                    Your Role
+                  </h3>
+                  <div
+                    className={`p-3 rounded-lg border ${
+                      currentPlayer.role.includes("mafia")
+                        ? "bg-red-500/20 border-red-500/30 text-red-400"
+                        : currentPlayer.role === "healer"
+                        ? "bg-green-500/20 border-green-500/30 text-green-400"
+                        : "bg-blue-500/20 border-blue-500/30 text-blue-400"
+                    }`}
+                  >
+                    <div className="font-bold text-center">
+                      {currentPlayer.role.replace("_", " ").toUpperCase()}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      </main>
-
-      {/* Modals */}
-      <AnimatePresence>
-        {showStats && gameState && (
-          <GameStats
-            gameState={gameState}
-            currentPlayer={currentPlayer}
-            onCloseAction={() => setShowStats(false)}
-          />
-        )}
-
-        {showPremiumAnalytics && gameState && (
-          <PremiumAnalytics
-            gameState={gameState}
-            currentPlayer={currentPlayer}
-            onClose={() => setShowPremiumAnalytics(false)}
-            isPremiumUser={isPremiumUser || isCreator}
-          />
-        )}
-
-        {showCreatorAccess && (
-          <CreatorAccess
-            onClose={() => setShowCreatorAccess(false)}
-            onCreatorVerified={handleCreatorVerified}
-          />
-        )}
-
-        {showPackageManagement && (
-          <PackageManagement
-            onClose={() => setShowPackageManagement(false)}
-            currentUserId={currentPlayer?.id}
-          />
-        )}
-      </AnimatePresence>
+      </div>
     </div>
   );
 }

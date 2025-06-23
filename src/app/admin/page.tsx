@@ -1,4 +1,4 @@
-// src/app/admin/page.tsx - Updated with graceful error handling
+// src/app/admin/page.tsx - Fixed undefined socketServerStats references
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -119,7 +119,7 @@ export default function AdminDashboard() {
     lastUpdate: new Date(),
   });
 
-  const { socket, serverStats: socketServerStats } = useSocket();
+  const { socket } = useSocket();
 
   const verifyCreatorAccess = async () => {
     if (!password.trim()) {
@@ -253,7 +253,7 @@ export default function AdminDashboard() {
           activeGames: data.rooms?.activeRooms || 0,
           totalPlayers: data.server?.uptime
             ? Math.floor(data.server.uptime / 60) + 1247
-            : socketServerStats?.totalPlayers || 0,
+            : 0,
           aiModelsActive: Array.isArray(data.ai)
             ? data.ai.length
             : Object.keys(data.ai || {}).length,
@@ -268,8 +268,7 @@ export default function AdminDashboard() {
           },
           uptime: data.server?.uptime || 0,
           networkTraffic: Math.round(Math.random() * 1000 + 500),
-          activeConnections:
-            data.rooms?.totalPlayers || socketServerStats?.totalPlayers || 0,
+          activeConnections: data.rooms?.totalPlayers || 0,
         });
       }
     } catch (error) {
@@ -714,9 +713,7 @@ export default function AdminDashboard() {
                 <div className="glass-card p-4 text-center">
                   <Activity className="w-8 h-8 text-blue-400 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-blue-400">
-                    {serverStats?.activeGames ||
-                      socketServerStats?.activeGames ||
-                      0}
+                    {serverStats?.activeGames || 0}
                   </div>
                   <div className="text-sm text-gray-400">Active Games</div>
                 </div>
@@ -724,9 +721,7 @@ export default function AdminDashboard() {
                 <div className="glass-card p-4 text-center">
                   <Users className="w-8 h-8 text-orange-400 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-orange-400">
-                    {serverStats?.totalPlayers ||
-                      socketServerStats?.totalPlayers ||
-                      0}
+                    {serverStats?.totalPlayers || 0}
                   </div>
                   <div className="text-sm text-gray-400">Total Players</div>
                 </div>

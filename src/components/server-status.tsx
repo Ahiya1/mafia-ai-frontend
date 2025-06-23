@@ -2,10 +2,17 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useSocket } from "@/lib/socket-context";
+import { useConnectionStatus, useSocket } from "@/lib/socket-context";
 
 export function ServerStatus() {
-  const { isConnected, connectionStatus } = useSocket();
+  const { isConnected } = useSocket();
+  const { connectionError } = useConnectionStatus();
+
+  const connectionStatus = isConnected
+    ? "connected"
+    : connectionError
+    ? "error"
+    : "connecting";
 
   const getStatusInfo = () => {
     switch (connectionStatus) {

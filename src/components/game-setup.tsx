@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useSocket } from "@/lib/socket-context";
+import { useConnectionStatus, useSocket } from "@/lib/socket-context";
 import toast from "react-hot-toast";
 
 interface GameSetupProps {
@@ -51,8 +51,8 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
   const [isLoadingPackages, setIsLoadingPackages] = useState(true);
   const [hasFreePremium, setHasFreePremium] = useState(false);
   const [isCreator, setIsCreator] = useState(false);
-  const { createRoom, joinRoom, isConnected, connectionStatus, serverStats } =
-    useSocket();
+  const { createRoom, joinRoom, isConnected, serverStats } = useSocket();
+  const { connectionError } = useConnectionStatus();
 
   useEffect(() => {
     checkUserStatus();
@@ -138,15 +138,17 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
     setIsCreating(true);
 
     try {
-      const settings = {
+      const roomSettings = {
         premiumModelsEnabled: premiumEnabled,
-        gameMode,
         allowSpectators: false,
         maxPlayers: 10,
         isCreator: isCreator,
       };
 
-      createRoom(playerName.trim(), settings);
+      await createRoom({
+        playerName: playerName.trim(),
+        roomSettings,
+      });
     } catch (error) {
       console.error("Failed to create room:", error);
       toast.error("Failed to create room");
@@ -160,7 +162,10 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
     setIsJoining(true);
 
     try {
-      joinRoom(roomCode.toUpperCase(), playerName.trim());
+      await joinRoom({
+        roomCode: roomCode.toUpperCase(),
+        playerName: playerName.trim(),
+      });
     } catch (error) {
       console.error("Failed to join room:", error);
       toast.error("Failed to join room");
@@ -227,6 +232,12 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
     "Advanced post-game analytics",
   ];
 
+  const connectionStatus = isConnected
+    ? "connected"
+    : connectionError
+    ? "error"
+    : "connecting";
+
   if (!isConnected) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -236,8 +247,6 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
           <p className="text-gray-400 mb-6">
             {connectionStatus === "connecting" && "Establishing connection..."}
             {connectionStatus === "error" && "Connection failed. Retrying..."}
-            {connectionStatus === "disconnected" &&
-              "Disconnected. Attempting to reconnect..."}
           </p>
           <div className="loading-dots justify-center">
             <span></span>
