@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
   MessageCircle,
-  Vote,
+  Vote as VoteIcon,
   Crown,
   Shield,
   Skull,
@@ -200,6 +200,11 @@ export default function GamePage() {
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
+  const canSendMessage =
+    gameState?.phase === "discussion" &&
+    gameState.currentSpeaker === currentPlayer?.id &&
+    currentPlayer?.isAlive === true;
+
   if (!isConnected) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
@@ -223,7 +228,7 @@ export default function GamePage() {
   }
 
   if (!isInGame) {
-    return <GameSetup onGameStart={() => setIsInGame(true)} />;
+    return <GameSetup onGameStartAction={() => setIsInGame(true)} />;
   }
 
   return (
@@ -444,11 +449,7 @@ export default function GamePage() {
               messages={messages}
               players={gameState?.players || []}
               gamePhase={gameState?.phase}
-              canSendMessage={
-                gameState?.phase === "discussion" &&
-                gameState.currentSpeaker === currentPlayer?.id &&
-                currentPlayer?.isAlive
-              }
+              canSendMessage={canSendMessage}
             />
             <div ref={chatEndRef} />
           </div>
@@ -468,7 +469,7 @@ export default function GamePage() {
                     (p) => p.isAlive && p.id !== currentPlayer?.id
                   )}
                   currentVoter={gameState.currentSpeaker === currentPlayer?.id}
-                  onVote={(targetId, reasoning) => {
+                  onVoteAction={(targetId, reasoning) => {
                     if (socket) {
                       socket.emit("game_action", {
                         type: "CAST_VOTE",
@@ -501,7 +502,7 @@ export default function GamePage() {
                           (p.role !== "mafia_leader" &&
                             p.role !== "mafia_member"))
                     )}
-                    onAction={(action, targetId) => {
+                    onActionPerformed={(action, targetId) => {
                       if (socket) {
                         socket.emit("game_action", {
                           type: "NIGHT_ACTION",
@@ -557,7 +558,7 @@ export default function GamePage() {
           {votes.length > 0 && (
             <div className="glass-card p-4">
               <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-                <Vote className="w-5 h-5 text-orange-400" />
+                <VoteIcon className="w-5 h-5 text-orange-400" />
                 Current Votes
               </h3>
               <div className="space-y-2 text-sm max-h-32 overflow-y-auto">
@@ -612,7 +613,7 @@ export default function GamePage() {
           <GameStats
             gameState={gameState}
             currentPlayer={currentPlayer}
-            onClose={() => setShowStats(false)}
+            onCloseAction={() => setShowStats(false)}
           />
         )}
       </AnimatePresence>

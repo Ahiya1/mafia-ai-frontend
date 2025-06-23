@@ -9,13 +9,13 @@ import { Player } from "@/types/game";
 interface NightActionPanelProps {
   role: "mafia_leader" | "healer";
   players: Player[];
-  onAction: (action: string, targetId: string) => void;
+  onActionPerformed: (action: string, targetId: string) => void;
 }
 
 export function NightActionPanel({
   role,
   players,
-  onAction,
+  onActionPerformed,
 }: NightActionPanelProps) {
   const [selectedTarget, setSelectedTarget] = useState<string>("");
 
@@ -23,7 +23,7 @@ export function NightActionPanel({
     if (!selectedTarget) return;
 
     const action = role === "mafia_leader" ? "kill" : "heal";
-    onAction(action, selectedTarget);
+    onActionPerformed(action, selectedTarget);
     setSelectedTarget("");
   };
 

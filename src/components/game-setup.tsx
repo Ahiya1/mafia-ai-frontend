@@ -9,10 +9,10 @@ import { useSocket } from "@/lib/socket-context";
 import toast from "react-hot-toast";
 
 interface GameSetupProps {
-  onGameStart: () => void;
+  onGameStartAction: () => void;
 }
 
-export function GameSetup({ onGameStart }: GameSetupProps) {
+export function GameSetup({ onGameStartAction }: GameSetupProps) {
   const [playerName, setPlayerName] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -39,7 +39,7 @@ export function GameSetup({ onGameStart }: GameSetupProps) {
         premiumModelsEnabled: premiumEnabled,
         gameMode,
       });
-      onGameStart();
+      onGameStartAction();
     } catch (error) {
       toast.error("Failed to create room");
       setIsCreating(false);
@@ -66,7 +66,7 @@ export function GameSetup({ onGameStart }: GameSetupProps) {
 
     try {
       joinRoom(roomCode.toUpperCase(), playerName.trim());
-      onGameStart();
+      onGameStartAction();
     } catch (error) {
       toast.error("Failed to join room");
       setIsJoining(false);

@@ -4,18 +4,18 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Vote, AlertTriangle, Users } from "lucide-react";
-import { Player } from "../types/game";
+import { Player } from "@/types/game";
 
 interface VotingPanelProps {
   players: Player[];
   currentVoter: boolean;
-  onVote: (targetId: string, reasoning: string) => void;
+  onVoteAction: (targetId: string, reasoning: string) => void;
 }
 
 export function VotingPanel({
   players,
   currentVoter,
-  onVote,
+  onVoteAction,
 }: VotingPanelProps) {
   const [selectedTarget, setSelectedTarget] = useState<string>("");
   const [reasoning, setReasoning] = useState("");
@@ -23,7 +23,7 @@ export function VotingPanel({
   const handleVote = () => {
     if (!selectedTarget || !reasoning.trim()) return;
 
-    onVote(selectedTarget, reasoning);
+    onVoteAction(selectedTarget, reasoning);
     setSelectedTarget("");
     setReasoning("");
   };

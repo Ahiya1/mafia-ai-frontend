@@ -3,7 +3,7 @@
 
 import { motion } from "framer-motion";
 import { Crown, Shield, Users, Skull, Bot, User, Mic } from "lucide-react";
-import { Player } from "@/types/game";
+import { Player } from "../types/game";
 
 interface PlayerCardProps {
   player: Player;
