@@ -100,7 +100,8 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const fetchServerStats = useCallback(async () => {
     try {
       const serverUrl =
-        process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001";
+        process.env.NEXT_PUBLIC_SERVER_URL ||
+        "https://mafia-ai-production.up.railway.app";
       const response = await fetch(`${serverUrl}/api/stats`);
 
       if (response.ok) {
