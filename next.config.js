@@ -1,14 +1,20 @@
-// next.config.js - Fixed for Next.js 15 compatibility
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Remove deprecated swcMinify (now default in Next.js 13+)
+  // Performance optimizations
   compiler: {
     removeConsole: process.env.NODE_ENV === "production",
   },
 
   // Image optimization
   images: {
-    domains: ["mafia-ai-production.up.railway.app"],
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "mafia-ai-production.up.railway.app",
+        port: "",
+        pathname: "/**",
+      },
+    ],
     formats: ["image/webp", "image/avif"],
   },
 
@@ -35,25 +41,8 @@ const nextConfig = {
     ];
   },
 
-  // Environment variables for Railway backend
-  env: {
-    NEXT_PUBLIC_API_URL:
-      process.env.NODE_ENV === "production"
-        ? "https://mafia-ai-production.up.railway.app"
-        : "http://localhost:3001",
-    NEXT_PUBLIC_WS_URL:
-      process.env.NODE_ENV === "production"
-        ? "wss://mafia-ai-production.up.railway.app"
-        : "ws://localhost:3001",
-    NEXT_PUBLIC_APP_URL:
-      process.env.NODE_ENV === "production"
-        ? "https://mafia-ai.vercel.app"
-        : "http://localhost:3000",
-  },
-
-  // Remove experimental optimizeCss to fix critters issue
+  // Experimental features
   experimental: {
-    // Remove optimizeCss
     webVitalsAttribution: ["CLS", "LCP"],
   },
 
@@ -70,7 +59,7 @@ const nextConfig = {
     ignoreDuringBuilds: false,
   },
 
-  // Optimize performance
+  // Performance optimizations
   productionBrowserSourceMaps: false,
   poweredByHeader: false,
 };

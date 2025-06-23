@@ -8,14 +8,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "export": "next export"
   },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
   },
   "dependencies": {
-    "clsx": "^2.1.0",
+    "clsx": "^2.0.0",
     "framer-motion": "^11.0.0",
     "lucide-react": "^0.263.1",
     "next": "^15.3.0",
@@ -23,15 +24,17 @@
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",
     "socket.io-client": "^4.8.1",
-    "tailwindcss": "^4.1.10",
     "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.21",
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.3.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
     "typescript": "^5.6.0"
   },
   "keywords": [
@@ -42,8 +45,7 @@
     "detective",
     "next.js",
     "typescript",
-    "premium",
-    "turing-test"
+    "premium"
   ],
   "author": "AI Mafia Team",
   "license": "MIT"

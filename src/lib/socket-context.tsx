@@ -53,10 +53,17 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [serverStats, setServerStats] = useState<ServerStats | null>(null);
 
   useEffect(() => {
-    // 🔥 FIXED: Use environment variable for WebSocket URL
-    const socketUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3001";
+    // 🔥 FIXED: Proper environment variable handling with fallbacks
+    const isProduction = process.env.NODE_ENV === "production";
+    const socketUrl = isProduction
+      ? process.env.NEXT_PUBLIC_WS_URL ||
+        "wss://mafia-ai-production.up.railway.app"
+      : "ws://localhost:3001";
 
     console.log("🔌 Connecting to WebSocket:", socketUrl);
+    console.log("🌍 Environment:", process.env.NODE_ENV);
+    console.log("🔧 Socket URL from env:", process.env.NEXT_PUBLIC_WS_URL);
+
     setConnectionStatus("connecting");
 
     const newSocket = io(socketUrl, {
@@ -65,15 +72,20 @@ export function SocketProvider({ children }: SocketProviderProps) {
       retries: 5,
       autoConnect: true,
       forceNew: true,
+      // 🔥 FIXED: Add proper headers for CORS
+      extraHeaders: {
+        "Access-Control-Allow-Origin": "*",
+      },
       query: {
         clientType: "game",
-        userAgent: navigator.userAgent,
+        userAgent:
+          typeof navigator !== "undefined" ? navigator.userAgent : "server",
       },
     });
 
     // Connection event handlers
     newSocket.on("connect", () => {
-      console.log("✅ Connected to AI Mafia server");
+      console.log("✅ Connected to AI Mafia server:", newSocket.id);
       setIsConnected(true);
       setConnectionStatus("connected");
       toast.success("Connected to game server!", {
@@ -108,8 +120,10 @@ export function SocketProvider({ children }: SocketProviderProps) {
         toast.error("Connection blocked by CORS policy");
       } else if (error.message.includes("timeout")) {
         toast.error("Connection timeout. Server may be down.");
+      } else if (error.message.includes("Transport unknown")) {
+        toast.error("WebSocket transport not supported");
       } else {
-        toast.error("Failed to connect to game server");
+        toast.error(`Failed to connect: ${error.message}`);
       }
     });
 
@@ -232,8 +246,21 @@ export function SocketProvider({ children }: SocketProviderProps) {
   // Fetch server stats from HTTP endpoint
   const fetchServerStats = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-      const response = await fetch(`${apiUrl}/api/stats`);
+      const isProduction = process.env.NODE_ENV === "production";
+      const apiUrl = isProduction
+        ? process.env.NEXT_PUBLIC_API_URL ||
+          "https://mafia-ai-production.up.railway.app"
+        : "http://localhost:3001";
+
+      console.log("📊 Fetching stats from:", `${apiUrl}/api/stats`);
+
+      const response = await fetch(`${apiUrl}/api/stats`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
 
       if (response.ok) {
         const data = await response.json();
@@ -244,7 +271,9 @@ export function SocketProvider({ children }: SocketProviderProps) {
           activeGames: data.rooms?.activeRooms || 89,
           totalRooms: data.rooms?.totalRooms || 150,
         });
+        console.log("📊 Stats updated:", data);
       } else {
+        console.warn("📊 Stats fetch failed, using fallback");
         // Fallback stats for demo
         setServerStats({
           totalPlayers: 1247,
@@ -253,7 +282,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
         });
       }
     } catch (error) {
-      console.warn("Failed to fetch server stats:", error);
+      console.warn("📊 Failed to fetch server stats:", error);
       // Fallback stats for demo
       setServerStats({
         totalPlayers: 1247,
