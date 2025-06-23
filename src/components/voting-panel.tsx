@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Vote, AlertTriangle, Users } from "lucide-react";
-import { Player } from "@/types/game";
+import { Player } from "../types/game";
 
 interface VotingPanelProps {
   players: Player[];
