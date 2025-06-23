@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
   MessageCircle,
-  Vote as VoteIcon,
+  Vote,
   Crown,
   Shield,
   Skull,
@@ -21,6 +21,9 @@ import {
   MicOff,
   Volume2,
   VolumeX,
+  BarChart3,
+  Package,
+  Unlock,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -33,6 +36,9 @@ import { VotingPanel } from "@/components/voting-panel";
 import { NightActionPanel } from "@/components/night-action-panel";
 import { GameSetup } from "@/components/game-setup";
 import { GameStats } from "@/components/game-stats";
+import { PremiumAnalytics } from "@/components/premium-analytics";
+import { CreatorAccess } from "@/components/creator-access";
+import { PackageManagement } from "@/components/package-management";
 import { useGameStore } from "@/stores/game-store";
 import toast from "react-hot-toast";
 
@@ -48,6 +54,15 @@ export default function GamePage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [micEnabled, setMicEnabled] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showPremiumAnalytics, setShowPremiumAnalytics] = useState(false);
+  const [showCreatorAccess, setShowCreatorAccess] = useState(false);
+  const [showPackageManagement, setShowPackageManagement] = useState(false);
+
+  // Premium & Creator state
+  const [isPremiumUser, setIsPremiumUser] = useState(false);
+  const [isCreator, setIsCreator] = useState(false);
+  const [creatorFeatures, setCreatorFeatures] = useState<string[]>([]);
+  const [userPackages, setUserPackages] = useState<any[]>([]);
 
   const { socket, isConnected, connectionStatus } = useSocket();
   const gameStore = useGameStore();
@@ -81,7 +96,6 @@ export default function GamePage() {
     socket.on("message_received", (data) => {
       setMessages((prev) => [...prev, data.message]);
 
-      // Play sound notification for messages from other players
       if (soundEnabled && data.message.playerId !== currentPlayer?.id) {
         playSound("message");
       }
@@ -111,7 +125,13 @@ export default function GamePage() {
       if (soundEnabled) {
         playSound(data.winner === "citizens" ? "victory" : "defeat");
       }
-      setShowStats(true);
+
+      // Show premium analytics if user is premium, otherwise basic stats
+      if (isPremiumUser || isCreator) {
+        setShowPremiumAnalytics(true);
+      } else {
+        setShowStats(true);
+      }
     });
 
     socket.on("error", (error) => {
@@ -129,7 +149,19 @@ export default function GamePage() {
       socket.off("game_ended");
       socket.off("error");
     };
-  }, [socket, currentPlayer, soundEnabled, gameStore]);
+  }, [
+    socket,
+    currentPlayer,
+    soundEnabled,
+    gameStore,
+    isPremiumUser,
+    isCreator,
+  ]);
+
+  // Check user premium status on load
+  useEffect(() => {
+    checkUserStatus();
+  }, []);
 
   // Timer countdown
   useEffect(() => {
@@ -153,10 +185,29 @@ export default function GamePage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const checkUserStatus = async () => {
+    try {
+      // Check if user has premium packages
+      const packagesResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/user/packages`,
+        {
+          credentials: "include",
+        }
+      );
+
+      if (packagesResponse.ok) {
+        const packagesData = await packagesResponse.json();
+        setUserPackages(packagesData.packages || []);
+        setIsPremiumUser(packagesData.packages?.length > 0);
+      }
+    } catch (error) {
+      console.error("Failed to check user status:", error);
+    }
+  };
+
   const playSound = (type: string) => {
     if (!soundEnabled) return;
 
-    // In a real implementation, you'd load and play actual sound files
     const audio = new Audio(`/sounds/${type}.mp3`);
     audio.volume = 0.3;
     audio.play().catch(() => {
@@ -200,10 +251,11 @@ export default function GamePage() {
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
-  const canSendMessage =
-    gameState?.phase === "discussion" &&
-    gameState.currentSpeaker === currentPlayer?.id &&
-    currentPlayer?.isAlive === true;
+  const handleCreatorVerified = (features: string[]) => {
+    setIsCreator(true);
+    setCreatorFeatures(features);
+    setIsPremiumUser(true); // Creators get premium access
+  };
 
   if (!isConnected) {
     return (
@@ -228,7 +280,7 @@ export default function GamePage() {
   }
 
   if (!isInGame) {
-    return <GameSetup onGameStartAction={() => setIsInGame(true)} />;
+    return <GameSetup onGameStart={() => setIsInGame(true)} />;
   }
 
   return (
@@ -271,6 +323,16 @@ export default function GamePage() {
                 >
                   <Share2 className="w-4 h-4" />
                 </button>
+              </div>
+            )}
+
+            {/* Premium/Creator Badge */}
+            {(isPremiumUser || isCreator) && (
+              <div className="glass-card px-3 py-1 flex items-center gap-2">
+                <Crown className="w-4 h-4 text-orange-400" />
+                <span className="text-sm font-medium text-orange-400">
+                  {isCreator ? "Creator" : "Premium"}
+                </span>
               </div>
             )}
           </div>
@@ -323,12 +385,39 @@ export default function GamePage() {
                 )}
               </button>
 
+              {/* Analytics Button */}
               <button
-                onClick={() => setShowStats(!showStats)}
+                onClick={() =>
+                  isPremiumUser || isCreator
+                    ? setShowPremiumAnalytics(!showPremiumAnalytics)
+                    : setShowStats(!showStats)
+                }
                 className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-                title="Game statistics"
+                title={
+                  isPremiumUser || isCreator
+                    ? "Premium Analytics"
+                    : "Game Statistics"
+                }
               >
-                <Settings className="w-5 h-5" />
+                <BarChart3 className="w-5 h-5" />
+              </button>
+
+              {/* Package Management */}
+              <button
+                onClick={() => setShowPackageManagement(!showPackageManagement)}
+                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+                title="Manage packages"
+              >
+                <Package className="w-5 h-5" />
+              </button>
+
+              {/* Creator Access */}
+              <button
+                onClick={() => setShowCreatorAccess(!showCreatorAccess)}
+                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+                title="Creator access"
+              >
+                <Unlock className="w-5 h-5" />
               </button>
 
               <button
@@ -397,6 +486,7 @@ export default function GamePage() {
                 )}
               </div>
 
+              {/* Role descriptions */}
               {currentPlayer.role === "mafia_leader" && (
                 <p className="text-sm text-red-300 mt-2 text-center">
                   You choose who to eliminate each night. Work with your mafia
@@ -449,7 +539,11 @@ export default function GamePage() {
               messages={messages}
               players={gameState?.players || []}
               gamePhase={gameState?.phase}
-              canSendMessage={canSendMessage}
+              canSendMessage={
+                gameState?.phase === "discussion" &&
+                gameState.currentSpeaker === currentPlayer?.id &&
+                currentPlayer?.isAlive
+              }
             />
             <div ref={chatEndRef} />
           </div>
@@ -469,7 +563,7 @@ export default function GamePage() {
                     (p) => p.isAlive && p.id !== currentPlayer?.id
                   )}
                   currentVoter={gameState.currentSpeaker === currentPlayer?.id}
-                  onVoteAction={(targetId, reasoning) => {
+                  onVote={(targetId, reasoning) => {
                     if (socket) {
                       socket.emit("game_action", {
                         type: "CAST_VOTE",
@@ -502,7 +596,7 @@ export default function GamePage() {
                           (p.role !== "mafia_leader" &&
                             p.role !== "mafia_member"))
                     )}
-                    onActionPerformed={(action, targetId) => {
+                    onAction={(action, targetId) => {
                       if (socket) {
                         socket.emit("game_action", {
                           type: "NIGHT_ACTION",
@@ -558,7 +652,7 @@ export default function GamePage() {
           {votes.length > 0 && (
             <div className="glass-card p-4">
               <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-                <VoteIcon className="w-5 h-5 text-orange-400" />
+                <Vote className="w-5 h-5 text-orange-400" />
                 Current Votes
               </h3>
               <div className="space-y-2 text-sm max-h-32 overflow-y-auto">
@@ -581,6 +675,28 @@ export default function GamePage() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* Premium Features Teaser */}
+          {!isPremiumUser && !isCreator && (
+            <div className="glass-card p-4">
+              <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                <Crown className="w-5 h-5 text-orange-400" />
+                Premium Features
+              </h3>
+              <div className="text-sm text-gray-400 space-y-2 mb-4">
+                <p>🔍 Advanced AI detection analysis</p>
+                <p>📊 Detailed performance metrics</p>
+                <p>🎯 Personalized improvement tips</p>
+                <p>💾 Game data export</p>
+              </div>
+              <button
+                onClick={() => setShowPackageManagement(true)}
+                className="btn-detective w-full text-sm"
+              >
+                Upgrade to Premium
+              </button>
             </div>
           )}
 
@@ -607,13 +723,36 @@ export default function GamePage() {
         </div>
       </main>
 
-      {/* Game Stats Modal */}
+      {/* Modals */}
       <AnimatePresence>
         {showStats && gameState && (
           <GameStats
             gameState={gameState}
             currentPlayer={currentPlayer}
-            onCloseAction={() => setShowStats(false)}
+            onClose={() => setShowStats(false)}
+          />
+        )}
+
+        {showPremiumAnalytics && gameState && (
+          <PremiumAnalytics
+            gameState={gameState}
+            currentPlayer={currentPlayer}
+            onClose={() => setShowPremiumAnalytics(false)}
+            isPremiumUser={isPremiumUser || isCreator}
+          />
+        )}
+
+        {showCreatorAccess && (
+          <CreatorAccess
+            onClose={() => setShowCreatorAccess(false)}
+            onCreatorVerified={handleCreatorVerified}
+          />
+        )}
+
+        {showPackageManagement && (
+          <PackageManagement
+            onClose={() => setShowPackageManagement(false)}
+            currentUserId={currentPlayer?.id}
           />
         )}
       </AnimatePresence>
