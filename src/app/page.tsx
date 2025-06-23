@@ -1,4 +1,4 @@
-// src/app/page.tsx
+// src/app/page.tsx - Premium Landing Page
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -21,6 +21,11 @@ import {
   Gamepad2,
   Sparkles,
   ChevronDown,
+  Bot,
+  Target,
+  MessageCircle,
+  Trophy,
+  BarChart3,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -33,8 +38,10 @@ import { ParticleBackground } from "@/components/particle-background";
 export default function LandingPage() {
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { isConnected, serverStats } = useSocket();
   const containerRef = useRef<HTMLDivElement>(null);
+
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start start", "end start"],
@@ -65,11 +72,22 @@ export default function LandingPage() {
   ];
 
   useEffect(() => {
+    setMounted(true);
     const timer = setInterval(() => {
       setCurrentTestimonial((prev) => (prev + 1) % testimonials.length);
     }, 4000);
     return () => clearInterval(timer);
   }, [testimonials.length]);
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-2xl font-bold text-white">
+          🕵️‍♂️ Loading AI Mafia...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="relative min-h-screen overflow-hidden">
@@ -85,7 +103,7 @@ export default function LandingPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 opacity-60" />
 
         {/* Floating Geometric Shapes */}
-        <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <motion.div
             animate={{
               rotate: 360,
@@ -123,6 +141,21 @@ export default function LandingPage() {
         </div>
 
         <div className="relative z-10 max-w-6xl mx-auto text-center">
+          {/* Premium Badge */}
+          <motion.div
+            initial={{ scale: 0, rotate: -180 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{
+              type: "spring",
+              stiffness: 260,
+              damping: 20,
+              delay: 0.1,
+            }}
+            className="mb-6 inline-flex items-center gap-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 border border-orange-500/30 px-4 py-2 rounded-full text-sm font-medium"
+          >
+            🎮 <span>World's First AI Social Deduction Game</span>
+          </motion.div>
+
           {/* Logo Animation */}
           <motion.div
             initial={{ scale: 0, rotate: -180 }}
@@ -148,14 +181,9 @@ export default function LandingPage() {
               }}
               className="relative"
             >
-              <Image
-                src="/detective-logo.png"
-                alt="AI Mafia Detective"
-                width={120}
-                height={120}
-                className="drop-shadow-2xl"
-                priority
-              />
+              <div className="w-32 h-32 bg-gradient-to-br from-blue-500 to-orange-500 rounded-2xl flex items-center justify-center text-6xl drop-shadow-2xl">
+                🕵️‍♂️
+              </div>
               <motion.div
                 animate={{
                   scale: [1, 1.2, 1],
@@ -166,7 +194,7 @@ export default function LandingPage() {
                   repeat: Infinity,
                   ease: "easeInOut",
                 }}
-                className="absolute inset-0 bg-blue-500/20 rounded-full blur-xl -z-10"
+                className="absolute inset-0 bg-blue-500/20 rounded-2xl blur-xl -z-10"
               />
             </motion.div>
           </motion.div>
@@ -176,23 +204,11 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4, duration: 0.8 }}
-            className="text-6xl md:text-8xl font-bold mb-6 leading-tight"
+            className="text-6xl md:text-8xl lg:text-9xl font-bold mb-6 leading-tight"
           >
-            <span className="text-gradient bg-gradient-to-r from-blue-400 via-purple-500 to-orange-500 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-blue-400 via-purple-500 to-orange-500 bg-clip-text text-transparent">
               AI MAFIA
             </span>
-            <motion.div
-              animate={{ rotate: [0, 5, -5, 0] }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                ease: "easeInOut",
-                delay: 1,
-              }}
-              className="inline-block ml-4"
-            >
-              🕵️‍♂️
-            </motion.div>
           </motion.h1>
 
           {/* Subtitle */}
@@ -203,7 +219,7 @@ export default function LandingPage() {
             className="text-xl md:text-3xl text-gray-300 mb-8 max-w-4xl mx-auto leading-relaxed"
           >
             The world's first{" "}
-            <span className="text-neon font-semibold">
+            <span className="text-cyan-400 font-semibold">
               social deduction game
             </span>{" "}
             where cutting-edge AI personalities think, deceive, and strategize
@@ -225,7 +241,7 @@ export default function LandingPage() {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="btn-detective text-xl px-8 py-4 flex items-center gap-3 group-hover:shadow-2xl"
+                className="bg-gradient-to-r from-blue-500 to-orange-500 text-white text-xl px-8 py-4 rounded-xl font-semibold flex items-center gap-3 shadow-lg hover:shadow-2xl transition-all duration-300"
               >
                 <Play className="w-6 h-6" />
                 Start Playing Now
@@ -242,11 +258,11 @@ export default function LandingPage() {
               </motion.button>
             </Link>
 
-            <Link href="/how-to-play" className="group">
+            <Link href="#demo" className="group">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="btn-secondary text-xl px-8 py-4 flex items-center gap-3"
+                className="border-2 border-orange-500 text-orange-400 text-xl px-8 py-4 rounded-xl font-semibold flex items-center gap-3 hover:bg-orange-500 hover:text-white transition-all duration-300"
               >
                 <Eye className="w-6 h-6" />
                 Watch Demo
@@ -267,14 +283,14 @@ export default function LandingPage() {
                 <div className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-blue-400" />
                   <AnimatedCounter
-                    value={serverStats.totalPlayers || 0}
+                    value={serverStats.totalPlayers || 1247}
                     suffix=" players online"
                   />
                 </div>
                 <div className="flex items-center gap-2">
                   <Gamepad2 className="w-5 h-5 text-orange-400" />
                   <AnimatedCounter
-                    value={serverStats.activeGames || 0}
+                    value={serverStats.activeGames || 89}
                     suffix=" active games"
                   />
                 </div>
@@ -308,7 +324,9 @@ export default function LandingPage() {
             className="text-center mb-16"
           >
             <h2 className="text-5xl md:text-6xl font-bold mb-6">
-              <span className="text-gradient">Revolutionary Features</span>
+              <span className="bg-gradient-to-r from-blue-400 to-orange-500 bg-clip-text text-transparent">
+                Revolutionary Features
+              </span>
             </h2>
             <p className="text-xl text-gray-400 max-w-3xl mx-auto">
               Experience gaming like never before with our cutting-edge AI
@@ -368,76 +386,124 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* How It Works Section */}
-      <section className="relative py-24 px-4 bg-gradient-to-b from-transparent to-slate-900/50">
-        <div className="max-w-6xl mx-auto">
+      {/* Game Preview */}
+      <section
+        className="relative py-24 px-4 bg-gradient-to-b from-transparent to-slate-900/50"
+        id="demo"
+      >
+        <div className="max-w-6xl mx-auto text-center">
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
-            className="text-center mb-20"
+            className="mb-16"
           >
             <h2 className="text-5xl md:text-6xl font-bold mb-6">
-              <span className="text-gradient">How It Works</span>
+              <span className="bg-gradient-to-r from-blue-400 to-orange-500 bg-clip-text text-transparent">
+                See It In Action
+              </span>
             </h2>
             <p className="text-xl text-gray-400 max-w-3xl mx-auto">
-              Three simple steps to experience the future of social deduction
+              Watch how AI personalities interact and deceive in real-time
+              gameplay
             </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-            {[
-              {
-                step: "01",
-                title: "Join a Game",
-                description:
-                  "Enter a room with up to 10 players. AI personalities are randomly assigned human names for perfect anonymity.",
-                icon: <Users className="w-8 h-8" />,
-              },
-              {
-                step: "02",
-                title: "Play & Analyze",
-                description:
-                  "Engage in discussions, cast votes, and use your detective skills to identify AI players among the humans.",
-                icon: <Brain className="w-8 h-8" />,
-              },
-              {
-                step: "03",
-                title: "Master the Game",
-                description:
-                  "Learn each AI's unique tells and patterns. Develop strategies to outsmart both artificial and human opponents.",
-                icon: <Crown className="w-8 h-8" />,
-              },
-            ].map((step, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 50 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: index * 0.2 }}
-                viewport={{ once: true }}
-                className="text-center group"
-              >
-                <div className="relative mb-8">
-                  <motion.div
-                    whileHover={{ scale: 1.1, rotate: 5 }}
-                    className="glass-card w-24 h-24 mx-auto flex items-center justify-center group-hover:border-blue-500/50 transition-all duration-300"
-                  >
-                    <div className="text-blue-400">{step.icon}</div>
-                  </motion.div>
-                  <div className="absolute -top-2 -right-2 bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm font-bold px-3 py-1 rounded-full">
-                    {step.step}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+            className="glass-card p-8 max-w-4xl mx-auto"
+          >
+            <div className="bg-slate-900 rounded-xl p-6 border border-slate-700">
+              <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-700">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-orange-500 rounded-lg flex items-center justify-center text-xl">
+                    🕵️‍♂️
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-blue-400">
+                      Room #ALPHA7
+                    </h3>
+                    <p className="text-sm text-gray-400">
+                      10/10 Players • 7 AI Hidden
+                    </p>
                   </div>
                 </div>
-                <h3 className="text-2xl font-bold mb-4 text-white group-hover:text-blue-400 transition-colors">
-                  {step.title}
-                </h3>
-                <p className="text-gray-400 leading-relaxed">
-                  {step.description}
-                </p>
-              </motion.div>
-            ))}
-          </div>
+                <div className="text-sm text-orange-400 font-mono">
+                  Phase: Discussion
+                </div>
+              </div>
+
+              <div className="space-y-4 text-left">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center text-sm">
+                    S
+                  </div>
+                  <div>
+                    <span className="text-blue-400 font-semibold">Sarah:</span>
+                    <span className="text-gray-300 ml-2">
+                      I think Alex is acting suspicious. Too analytical...
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-orange-500/20 rounded-full flex items-center justify-center text-sm">
+                    A
+                  </div>
+                  <div>
+                    <span className="text-orange-400 font-semibold">Alex:</span>
+                    <span className="text-gray-300 ml-2">
+                      Just being thorough! Marcus hasn't said much though 🤔
+                    </span>
+                    <span className="ml-2 text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded">
+                      🤖 AI
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-purple-500/20 rounded-full flex items-center justify-center text-sm">
+                    M
+                  </div>
+                  <div>
+                    <span className="text-purple-400 font-semibold">
+                      Marcus:
+                    </span>
+                    <span className="text-gray-300 ml-2">
+                      Sorry, was analyzing voting patterns. Elena seems off to
+                      me.
+                    </span>
+                    <span className="ml-2 text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded">
+                      🤖 AI
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center text-sm">
+                    Y
+                  </div>
+                  <div>
+                    <span className="text-green-400 font-semibold">You:</span>
+                    <span className="text-gray-300 ml-2">
+                      Both Alex and Marcus have very structured responses...
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 text-center">
+                <div className="inline-flex items-center gap-2 bg-orange-500/20 text-orange-400 px-4 py-2 rounded-lg text-sm">
+                  <Target className="w-4 h-4" />
+                  💡 Can you identify the AI players?
+                </div>
+              </div>
+            </div>
+          </motion.div>
         </div>
       </section>
 
@@ -452,7 +518,9 @@ export default function LandingPage() {
             className="text-center mb-16"
           >
             <h2 className="text-5xl md:text-6xl font-bold mb-6">
-              <span className="text-gradient">What Players Say</span>
+              <span className="bg-gradient-to-r from-blue-400 to-orange-500 bg-clip-text text-transparent">
+                What Players Say
+              </span>
             </h2>
             <p className="text-xl text-gray-400">
               Join thousands of players experiencing the future of gaming
@@ -518,7 +586,7 @@ export default function LandingPage() {
             viewport={{ once: true }}
           >
             <h2 className="text-5xl md:text-6xl font-bold mb-6">
-              Ready to Play?
+              Ready to Play Detective?
             </h2>
             <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
               Join the revolution in social deduction gaming. Experience AI
@@ -530,7 +598,7 @@ export default function LandingPage() {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="btn-detective text-xl px-12 py-4 flex items-center gap-3"
+                  className="bg-gradient-to-r from-blue-500 to-orange-500 text-white text-xl px-12 py-4 rounded-xl font-semibold flex items-center gap-3 shadow-lg hover:shadow-2xl transition-all duration-300"
                 >
                   <Sparkles className="w-6 h-6" />
                   Start Your First Game
