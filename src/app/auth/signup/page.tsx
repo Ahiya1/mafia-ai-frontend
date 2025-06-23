@@ -1,6 +1,7 @@
-// src/app/auth/signup/page.tsx - Sign Up Page
+// src/app/auth/signup/page.tsx - Fixed with Suspense
 "use client";
 
+import { Suspense } from "react";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -23,7 +24,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 
-export default function SignUpPage() {
+function SignUpContent() {
   const [formData, setFormData] = useState({
     username: "",
     email: "",
@@ -504,5 +505,30 @@ export default function SignUpPage() {
         </motion.div>
       </div>
     </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-orange-500 rounded-xl flex items-center justify-center text-3xl mb-4 mx-auto">
+          🕵️‍♂️
+        </div>
+        <div className="loading-dots justify-center">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <SignUpContent />
+    </Suspense>
   );
 }
