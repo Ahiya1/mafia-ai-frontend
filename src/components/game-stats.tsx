@@ -15,18 +15,18 @@ import {
   Shield,
   Skull,
 } from "lucide-react";
-import { GameState, Player } from "@/types/game";
+import { GameState, Player } from "../types/game";
 
 interface GameStatsProps {
   gameState: GameState;
   currentPlayer: Player | null;
-  onClose: () => void;
+  onCloseAction: () => void;
 }
 
 export function GameStats({
   gameState,
   currentPlayer,
-  onClose,
+  onCloseAction,
 }: GameStatsProps) {
   const calculateStats = () => {
     const totalPlayers = gameState.players.length;
@@ -103,7 +103,7 @@ export function GameStats({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-        onClick={onClose}
+        onClick={onCloseAction}
       >
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
@@ -119,7 +119,7 @@ export function GameStats({
               <h2 className="text-2xl font-bold">Game Statistics</h2>
             </div>
             <button
-              onClick={onClose}
+              onClick={onCloseAction}
               className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
             >
               <X className="w-6 h-6" />
@@ -323,7 +323,7 @@ export function GameStats({
 
           {/* Footer */}
           <div className="p-6 border-t border-gray-700 text-center">
-            <button onClick={onClose} className="btn-detective px-8 py-3">
+            <button onClick={onCloseAction} className="btn-detective px-8 py-3">
               Close Statistics
             </button>
           </div>
