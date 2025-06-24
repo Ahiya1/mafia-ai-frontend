@@ -1,4 +1,4 @@
-// src/app/game/[roomCode]/page.tsx - Updated with Observer Mode
+// src/app/game/[roomCode]/page.tsx - Complete Fixed Version
 "use client";
 
 import { useEffect, useState } from "react";
@@ -15,6 +15,7 @@ import {
   VolumeX,
   Monitor,
   User,
+  Zap,
 } from "lucide-react";
 import { useSocket } from "@/lib/socket-context";
 import { useGameStore } from "@/stores/game-store";
@@ -24,6 +25,88 @@ import { NightActionPanel } from "@/components/night-action-panel";
 import { GamePhaseDisplay } from "@/components/game-phase-display";
 import { ObserverDashboard } from "@/components/observer-dashboard";
 import { PlayerCard } from "@/components/player-card";
+
+// Creator Tools Component
+const CreatorObserverPanel = () => {
+  const [isCreating, setIsCreating] = useState(false);
+
+  const createAIOnlyGame = async () => {
+    setIsCreating(true);
+
+    try {
+      const serverUrl =
+        process.env.NEXT_PUBLIC_SERVER_URL ||
+        "https://mafia-ai-production.up.railway.app";
+      const response = await fetch(`${serverUrl}/api/creator/ai-only-game`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          password:
+            process.env.NEXT_PUBLIC_CREATOR_PASSWORD ||
+            "detective_ai_mafia_2025",
+          gameConfig: {
+            maxPlayers: 10,
+            aiCount: 10,
+            humanCount: 0,
+            premiumModelsEnabled: true,
+            allowSpectators: true,
+            nightPhaseDuration: 60,
+            discussionPhaseDuration: 180,
+            votingPhaseDuration: 90,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        console.log("🤖 AI-only game created:", data);
+        // Navigate to the game as observer
+        const observerUrl = `/game/${data.roomInfo.code}?observer=true`;
+        window.location.href = observerUrl;
+      } else {
+        console.error("Failed to create AI-only game:", data.message);
+        alert("Failed to create AI-only game: " + data.message);
+      }
+    } catch (error) {
+      console.error("Error creating AI-only game:", error);
+      alert("Error creating AI-only game. Check console for details.");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return (
+    <div className="glass-card p-4 mb-4">
+      <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+        <Zap className="w-5 h-5 text-purple-400" />
+        Creator Tools
+      </h3>
+      <button
+        onClick={createAIOnlyGame}
+        disabled={isCreating}
+        className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        {isCreating ? (
+          <>
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            Creating AI Game...
+          </>
+        ) : (
+          <>
+            <Eye className="w-4 h-4" />
+            Create AI-Only Game & Spectate
+          </>
+        )}
+      </button>
+      <p className="text-xs text-gray-400 mt-2">
+        Creates a game with 10 AI players using premium models
+      </p>
+    </div>
+  );
+};
 
 export default function GamePage() {
   const params = useParams();
@@ -49,14 +132,28 @@ export default function GamePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // Initialize connection and join room
+  // FIXED: Enhanced room joining with proper observer mode detection
   useEffect(() => {
     if (!isConnected || !roomCode) return;
 
     const playerName =
       localStorage.getItem("playerName") || `Player_${Date.now()}`;
     const playerId = localStorage.getItem("playerId") ?? undefined;
-    const observerMode = localStorage.getItem("observerMode") === "true";
+
+    // FIXED: Better observer mode detection from URL and localStorage
+    const urlParams = new URLSearchParams(window.location.search);
+    const observerMode =
+      urlParams.get("observer") === "true" ||
+      urlParams.get("spectate") === "true" ||
+      localStorage.getItem("observerMode") === "true";
+
+    console.log("🔍 Join parameters:", {
+      roomCode,
+      playerName,
+      playerId,
+      observerMode,
+      urlParams: Object.fromEntries(urlParams.entries()),
+    });
 
     setIsObserver(observerMode);
 
@@ -68,28 +165,76 @@ export default function GamePage() {
     })
       .then((response) => {
         setIsLoading(false);
+        console.log("✅ Join response:", response);
+
         if (response.success) {
           if (observerMode) {
-            console.log("✅ Joined as observer");
+            console.log("✅ Successfully joined as observer");
+            localStorage.setItem("observerMode", "true");
           } else {
             setCurrentPlayer(response.player);
-            console.log("✅ Joined as player");
+            console.log("✅ Successfully joined as player");
+            localStorage.setItem("observerMode", "false");
           }
         } else {
+          console.error("❌ Join failed:", response.message);
           setConnectionError(response.message || "Failed to join room");
         }
       })
       .catch((error) => {
         setIsLoading(false);
+        console.error("❌ Join error:", error);
         setConnectionError(error.message || "Connection failed");
       });
   }, [isConnected, roomCode, joinRoom, setCurrentPlayer]);
 
-  // Socket event handlers
+  // FIXED: Enhanced observer event handler
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleObserverJoined = (data: any) => {
+      console.log("👁️ Observer joined successfully:", data);
+      setIsObserver(true);
+
+      if (data.gameState) {
+        setGameState(data.gameState);
+      }
+
+      if (data.observerData) {
+        setObserverData(data.observerData);
+      }
+
+      // Ensure observer mode is persisted
+      localStorage.setItem("observerMode", "true");
+    };
+
+    const handleRoomJoined = (data: any) => {
+      console.log("🏠 Room joined successfully:", data);
+
+      if (data.gameState) {
+        setGameState(data.gameState);
+      }
+
+      // Ensure player mode is set
+      localStorage.setItem("observerMode", "false");
+    };
+
+    // Register both handlers
+    socket.on("observer_joined", handleObserverJoined);
+    socket.on("room_joined", handleRoomJoined);
+
+    return () => {
+      socket.off("observer_joined", handleObserverJoined);
+      socket.off("room_joined", handleRoomJoined);
+    };
+  }, [socket, setGameState, setObserverData]);
+
+  // Main socket event handlers
   useEffect(() => {
     if (!socket) return;
 
     const handleGameStateUpdate = (newGameState: any) => {
+      console.log("📊 Game state update:", newGameState);
       setGameState(newGameState);
 
       // Extract observer data if present
@@ -100,6 +245,7 @@ export default function GamePage() {
 
     const handleObserverUpdate = (update: any) => {
       if (isObserver) {
+        console.log("👁️ Observer update:", update);
         setObserverData((prev: { observerUpdates: any }) => ({
           ...prev,
           observerUpdates: [
@@ -116,6 +262,7 @@ export default function GamePage() {
     };
 
     const handlePhaseChanged = (data: any) => {
+      console.log("🔄 Phase changed:", data);
       // Update game state with new phase
       if (gameState) {
         setGameState({
@@ -136,6 +283,7 @@ export default function GamePage() {
     };
 
     const handlePlayerEliminated = (data: any) => {
+      console.log("💀 Player eliminated:", data);
       // Play elimination sound
       if (soundEnabled) {
         playEliminationSound();
@@ -143,6 +291,7 @@ export default function GamePage() {
     };
 
     const handleGameEnded = (data: any) => {
+      console.log("🏁 Game ended:", data);
       // Play game end sound
       if (soundEnabled) {
         playGameEndSound(data.winner);
@@ -150,10 +299,16 @@ export default function GamePage() {
     };
 
     const handleRoomTerminated = (data: any) => {
+      console.log("🔥 Room terminated:", data);
       setConnectionError(`Room was terminated: ${data.message}`);
       setTimeout(() => {
         router.push("/");
       }, 3000);
+    };
+
+    const handleError = (error: any) => {
+      console.error("🔥 Socket error:", error);
+      setConnectionError(error.message || "Socket error occurred");
     };
 
     // Register event listeners
@@ -163,6 +318,7 @@ export default function GamePage() {
     socket.on("player_eliminated", handlePlayerEliminated);
     socket.on("game_ended", handleGameEnded);
     socket.on("room_terminated", handleRoomTerminated);
+    socket.on("error", handleError);
 
     return () => {
       socket.off("game_state_update", handleGameStateUpdate);
@@ -171,6 +327,7 @@ export default function GamePage() {
       socket.off("player_eliminated", handlePlayerEliminated);
       socket.off("game_ended", handleGameEnded);
       socket.off("room_terminated", handleRoomTerminated);
+      socket.off("error", handleError);
     };
   }, [socket, isObserver, soundEnabled, gameState, setGameState, router]);
 
@@ -247,6 +404,8 @@ export default function GamePage() {
   };
 
   const handleLeaveRoom = () => {
+    // Clear observer mode when leaving
+    localStorage.removeItem("observerMode");
     router.push("/");
   };
 
@@ -292,6 +451,7 @@ export default function GamePage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
           <p className="text-gray-400">Connecting to game...</p>
+          <p className="text-sm text-gray-500 mt-2">Room: {roomCode}</p>
         </div>
       </div>
     );
@@ -303,9 +463,20 @@ export default function GamePage() {
         <div className="text-center max-w-md">
           <div className="text-red-400 text-xl mb-4">Connection Error</div>
           <p className="text-gray-400 mb-6">{connectionError}</p>
-          <button onClick={handleLeaveRoom} className="btn-detective px-6 py-2">
-            Return to Lobby
-          </button>
+          <div className="space-y-3">
+            <button
+              onClick={handleLeaveRoom}
+              className="btn-detective px-6 py-2 w-full"
+            >
+              Return to Lobby
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors w-full"
+            >
+              Try Again
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -321,6 +492,7 @@ export default function GamePage() {
               <button
                 onClick={handleLeaveRoom}
                 className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+                title="Leave Room"
               >
                 <ArrowLeft className="w-5 h-5 text-gray-400" />
               </button>
@@ -495,6 +667,11 @@ export default function GamePage() {
           {/* Game Info Panel */}
           {(!isObserver || !showObserverPanel) && (
             <div className="space-y-4">
+              {/* Creator Tools - Only show if creator password is available */}
+              {process.env.NEXT_PUBLIC_CREATOR_PASSWORD && (
+                <CreatorObserverPanel />
+              )}
+
               <div className="glass-card p-4">
                 <h3 className="text-lg font-bold text-white mb-4">Game Info</h3>
                 <div className="space-y-3 text-sm">
@@ -547,6 +724,35 @@ export default function GamePage() {
                   </div>
                 </div>
               )}
+
+              {/* Connection Status */}
+              <div className="glass-card p-4">
+                <h3 className="text-sm font-bold text-white mb-2">Status</h3>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Connection:</span>
+                    <span
+                      className={`font-medium ${
+                        isConnected ? "text-green-400" : "text-red-400"
+                      }`}
+                    >
+                      {isConnected ? "Connected" : "Disconnected"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Mode:</span>
+                    <span className="text-white font-medium">
+                      {isObserver ? "Observer" : "Player"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Sound:</span>
+                    <span className="text-white font-medium">
+                      {soundEnabled ? "On" : "Off"}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
