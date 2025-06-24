@@ -41,6 +41,17 @@ export interface GameState {
   gameConfig?: GameConfig;
 }
 
+// Enhanced GameState for store usage
+export interface EnhancedGameState extends GameState {
+  phaseStatus?: {
+    phase: string;
+    timeRemaining: number;
+    completionStatus: any;
+    nextActions: string[];
+  };
+  observerData?: ObserverData;
+}
+
 export interface Vote {
   id?: string;
   voterId: string;
@@ -55,7 +66,13 @@ export interface Message {
   content: string;
   timestamp: string;
   phase: string;
-  messageType?: "discussion" | "vote" | "action" | "system";
+  messageType?:
+    | "discussion"
+    | "vote"
+    | "action"
+    | "system"
+    | "phase_transition";
+  round?: number;
 }
 
 export interface GameConfig {
@@ -98,4 +115,40 @@ export interface ServerStats {
   totalPlayers: number;
   activeGames: number;
   totalRooms: number;
+}
+
+// Observer-related interfaces
+export interface ObserverUpdate {
+  type: "mafia_chat" | "healer_thoughts" | "private_action" | "ai_reasoning";
+  content: string;
+  playerId: string;
+  timestamp: string;
+  phase: string;
+  playerName?: string;
+  playerType?: string;
+  playerModel?: string;
+  playerRole?: string;
+  round?: number;
+  context?: any;
+}
+
+export interface ObserverData {
+  observerUpdates: ObserverUpdate[];
+  gameAnalytics?: any;
+  lastUpdated: string;
+}
+
+// Socket response interfaces
+export interface JoinRoomResponse {
+  success: boolean;
+  message?: string;
+  player?: Player;
+  gameState?: EnhancedGameState;
+  observerData?: ObserverData;
+}
+
+export interface SocketResponse {
+  success: boolean;
+  message?: string;
+  data?: any;
 }

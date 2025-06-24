@@ -1,4 +1,4 @@
-// src/lib/socket-context.tsx - Complete Enhanced Socket Context
+// src/lib/socket-context.tsx - FIXED: Complete Enhanced Socket Context with Observer Support
 "use client";
 
 import React, {
@@ -24,6 +24,36 @@ interface ServerStats {
   timestamp?: string;
 }
 
+// FIXED: Enhanced interfaces to match backend responses
+interface ObserverUpdate {
+  type: "mafia_chat" | "healer_thoughts" | "private_action" | "ai_reasoning";
+  content: string;
+  playerId: string;
+  timestamp: string;
+  phase: string;
+  playerName?: string;
+  playerType?: string;
+  playerModel?: string;
+  playerRole?: string;
+  round?: number;
+  context?: any;
+}
+
+interface ObserverData {
+  observerUpdates: ObserverUpdate[];
+  suspicionMatrix: Record<string, Record<string, number>>;
+  gameAnalytics: any;
+  phaseHistory?: Array<{
+    phase: string;
+    timestamp: string;
+    round: number;
+    duration?: number;
+    actions?: number;
+  }>;
+  lastUpdated?: string;
+  roomCode?: string;
+}
+
 interface SocketContextType {
   socket: Socket | null;
   isConnected: boolean;
@@ -47,11 +77,20 @@ interface JoinRoomData {
   observerMode?: boolean;
 }
 
+// FIXED: Complete JoinRoomResponse interface with observer support
 interface JoinRoomResponse {
   success: boolean;
   message?: string;
   player?: any;
   roomInfo?: any;
+  gameState?: any;
+  observerData?: ObserverData;
+  players?: any[];
+  roomId?: string;
+  playerId?: string;
+  observerName?: string;
+  observerMode?: boolean;
+  joinTimestamp?: string;
 }
 
 interface CreateRoomData {
@@ -91,6 +130,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
     setConnectionState,
     addObserverUpdate,
     setObserverData,
+    mergeObserverData,
     currentPlayer,
     isObserver,
     setSoundEnabled,
@@ -189,7 +229,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
       }
     });
 
-    // Game events
+    // FIXED: Enhanced game events with observer support
     newSocket.on("room_joined", (data) => {
       console.log("🏠 Room joined:", data);
       if (data.gameState) {
@@ -199,10 +239,22 @@ export function SocketProvider({ children }: SocketProviderProps) {
       fetchServerStats();
     });
 
+    // FIXED: Enhanced observer joined handler
     newSocket.on("observer_joined", (data) => {
-      console.log("👁️ Observer joined:", data);
+      console.log("👁️ Observer joined with complete data:", {
+        observerData: !!data.observerData,
+        gameState: !!data.gameState,
+        players: data.players?.length || 0,
+      });
+
       if (data.gameState) {
         setGameState(data.gameState);
+      }
+
+      // Handle observer data if present
+      if (data.observerData) {
+        console.log("🔄 Merging observer data from server...");
+        mergeObserverData(data.observerData);
       }
     });
 
@@ -224,11 +276,22 @@ export function SocketProvider({ children }: SocketProviderProps) {
     newSocket.on("game_state_update", (gameState) => {
       console.log("📊 Game state update:", gameState);
       setGameState(gameState);
+
+      // Extract observer data if present and in observer mode
+      if (gameState.observerData && isObserver) {
+        mergeObserverData(gameState.observerData);
+      }
     });
 
     newSocket.on("phase_changed", (data) => {
       console.log("🔄 Phase changed:", data);
       // Phase changes are handled by game_state_update
+    });
+
+    // FIXED: Enhanced phase separator handler
+    newSocket.on("phase_separator", (data) => {
+      console.log("📏 Phase separator received:", data);
+      // Phase separators are handled in the game page component
     });
 
     newSocket.on("message_received", (data) => {
@@ -272,9 +335,14 @@ export function SocketProvider({ children }: SocketProviderProps) {
       fetchServerStats();
     });
 
-    // Observer-specific events
+    // FIXED: Enhanced observer-specific events
     newSocket.on("observer_update", (data) => {
-      console.log("👁️ Observer update:", data);
+      console.log("👁️ Observer update:", {
+        type: data.update?.type,
+        playerName: data.update?.playerName,
+        content: data.update?.content?.substring(0, 50) + "...",
+      });
+
       if (isObserver && data.update) {
         addObserverUpdate(data.update);
       }
@@ -291,6 +359,10 @@ export function SocketProvider({ children }: SocketProviderProps) {
           playerId: data.playerId || "",
           timestamp: data.timestamp,
           phase: data.phase || "unknown",
+          playerName: data.playerName,
+          playerType: "ai",
+          playerModel: data.playerModel,
+          playerRole: data.playerRole,
         });
       }
     });
@@ -305,6 +377,8 @@ export function SocketProvider({ children }: SocketProviderProps) {
           playerId: data.voterId || "",
           timestamp: data.timestamp,
           phase: "voting",
+          playerName: data.voterName,
+          playerType: "ai",
         });
       }
     });
@@ -321,6 +395,8 @@ export function SocketProvider({ children }: SocketProviderProps) {
           playerId: data.actorId || "",
           timestamp: data.timestamp,
           phase: "night",
+          playerName: data.actorName,
+          playerType: "ai",
         });
       }
     });
@@ -378,6 +454,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
     setGameState,
     setConnectionState,
     addObserverUpdate,
+    mergeObserverData,
     isObserver,
     fetchServerStats,
   ]);
@@ -405,7 +482,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
     };
   }, [initializeSocket, fetchServerStats]);
 
-  // Socket action functions
+  // FIXED: Enhanced socket action functions with observer support
   const joinRoom = useCallback(
     async (data: JoinRoomData): Promise<JoinRoomResponse> => {
       if (!socket || !isConnected) {
@@ -419,22 +496,49 @@ export function SocketProvider({ children }: SocketProviderProps) {
 
         socket.emit("join_room", data);
 
+        // FIXED: Enhanced success handler for both player and observer modes
         const handleSuccess = (response: any) => {
           clearTimeout(timeout);
           socket.off("room_joined", handleSuccess);
-          socket.off("observer_joined", handleSuccess);
+          socket.off("observer_joined", handleObserverSuccess);
           socket.off("error", handleError);
+
           resolve({
             success: true,
             player: response.player,
             roomInfo: response.roomInfo,
+            gameState: response.gameState,
+            players: response.players,
+            roomId: response.roomId,
+            playerId: response.playerId,
+          });
+        };
+
+        // FIXED: Enhanced observer success handler
+        const handleObserverSuccess = (response: any) => {
+          clearTimeout(timeout);
+          socket.off("room_joined", handleSuccess);
+          socket.off("observer_joined", handleObserverSuccess);
+          socket.off("error", handleError);
+
+          resolve({
+            success: true,
+            observerData: response.observerData,
+            gameState: response.gameState,
+            players: response.players,
+            roomInfo: { code: response.roomCode, id: response.roomId },
+            roomId: response.roomId,
+            observerName: response.observerName,
+            playerId: response.playerId,
+            observerMode: true,
+            joinTimestamp: response.joinTimestamp,
           });
         };
 
         const handleError = (error: any) => {
           clearTimeout(timeout);
           socket.off("room_joined", handleSuccess);
-          socket.off("observer_joined", handleSuccess);
+          socket.off("observer_joined", handleObserverSuccess);
           socket.off("error", handleError);
           resolve({
             success: false,
@@ -443,7 +547,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
         };
 
         socket.on("room_joined", handleSuccess);
-        socket.on("observer_joined", handleSuccess);
+        socket.on("observer_joined", handleObserverSuccess);
         socket.on("error", handleError);
       });
     },

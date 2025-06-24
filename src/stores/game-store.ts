@@ -1,4 +1,4 @@
-// src/stores/game-store.ts - Enhanced with Observer Support
+// src/stores/game-store.ts - FIXED: Enhanced Observer Persistence with localStorage
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { GameState, Player } from "../types/game";
@@ -9,29 +9,52 @@ interface ObserverUpdate {
   playerId: string;
   timestamp: string;
   phase: string;
+  playerName?: string;
+  playerType?: string;
+  playerModel?: string;
+  playerRole?: string;
+  round?: number;
+  context?: any;
 }
 
 interface GameAnalytics {
+  gameId?: string;
   duration: number;
+  currentPhaseDuration?: number;
   rounds: number;
+  currentPhase?: string;
   totalMessages: number;
   totalVotes: number;
   totalNightActions: number;
   eliminations: number;
+  observerUpdates?: number;
   playerStats: {
     total: number;
     ai: number;
     human: number;
     alive: number;
+    eliminated?: number;
   };
-  phaseStats: Record<string, number>;
+  aiModelDistribution?: Record<string, number>;
+  phaseStats: Record<string, any>;
   playerActivity: Record<string, any>;
+  suspicionAnalytics?: any;
+  roleDistribution?: Record<string, number>;
 }
 
 interface ObserverData {
   observerUpdates: ObserverUpdate[];
   suspicionMatrix: Record<string, Record<string, number>>;
   gameAnalytics: GameAnalytics;
+  phaseHistory?: Array<{
+    phase: string;
+    timestamp: string;
+    round: number;
+    duration?: number;
+    actions?: number;
+  }>;
+  lastUpdated?: string;
+  roomCode?: string;
 }
 
 interface EnhancedGameState extends GameState {
@@ -58,11 +81,16 @@ interface GameStore {
   showObserverPanel: boolean;
   soundEnabled: boolean;
   autoScroll: boolean;
+  messageFilter: "all" | "discussion" | "observer" | "system";
 
   // Connection state
   isConnected: boolean;
   connectionError: string | null;
   roomCode: string | null;
+
+  // FIXED: Observer persistence settings
+  observerPersistenceEnabled: boolean;
+  lastObserverSync: string | null;
 
   // Actions
   setGameState: (gameState: EnhancedGameState) => void;
@@ -74,9 +102,18 @@ interface GameStore {
   setShowObserverPanel: (show: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setAutoScroll: (enabled: boolean) => void;
+  setMessageFilter: (
+    filter: "all" | "discussion" | "observer" | "system"
+  ) => void;
   setConnectionState: (connected: boolean, error?: string) => void;
   setRoomCode: (code: string) => void;
   clearGame: () => void;
+
+  // FIXED: Observer persistence actions
+  saveObserverDataToStorage: () => void;
+  loadObserverDataFromStorage: (roomCode: string) => ObserverData | null;
+  mergeObserverData: (newData: ObserverData) => void;
+  clearObserverStorage: (roomCode?: string) => void;
 
   // Computed getters
   getAlivePlayers: () => Player[];
@@ -94,9 +131,26 @@ interface GameStore {
   // Observer helpers
   getLatestObserverUpdates: (count?: number) => ObserverUpdate[];
   getObserverUpdatesByType: (type: string) => ObserverUpdate[];
+  getObserverUpdatesByPhase: (phase: string) => ObserverUpdate[];
   getSuspicionLevel: (playerId: string) => number;
   getTrustLevel: (playerId: string) => number;
+  getObserverUpdateStats: () => Record<string, number>;
 }
+
+// FIXED: Helper function to get localStorage key for observer data
+const getObserverStorageKey = (roomCode: string): string => {
+  return `observer_data_${roomCode}`;
+};
+
+// FIXED: Helper function to sanitize observer data for storage
+const sanitizeObserverDataForStorage = (data: ObserverData): any => {
+  return {
+    ...data,
+    lastUpdated: new Date().toISOString(),
+    // Limit stored updates to prevent localStorage bloat
+    observerUpdates: data.observerUpdates.slice(-50),
+  };
+};
 
 export const useGameStore = create<GameStore>()(
   subscribeWithSelector((set, get) => ({
@@ -109,9 +163,12 @@ export const useGameStore = create<GameStore>()(
     showObserverPanel: true,
     soundEnabled: true,
     autoScroll: true,
+    messageFilter: "all",
     isConnected: false,
     connectionError: null,
     roomCode: null,
+    observerPersistenceEnabled: true,
+    lastObserverSync: null,
 
     // Actions
     setGameState: (gameState) => {
@@ -119,26 +176,85 @@ export const useGameStore = create<GameStore>()(
 
       // Extract observer data if present
       if (gameState.observerData) {
-        set({ observerData: gameState.observerData });
+        get().mergeObserverData(gameState.observerData);
+      }
+
+      // Save to storage if observer mode and persistence enabled
+      const { isObserver, observerPersistenceEnabled, roomCode } = get();
+      if (isObserver && observerPersistenceEnabled && roomCode) {
+        setTimeout(() => get().saveObserverDataToStorage(), 100);
       }
     },
 
     setCurrentPlayer: (currentPlayer) => set({ currentPlayer }),
 
-    setObserver: (isObserver) => set({ isObserver }),
+    setObserver: (isObserver) => {
+      set({ isObserver });
 
-    setObserverData: (observerData) => set({ observerData }),
+      // Load observer data from storage when becoming observer
+      if (isObserver) {
+        const { roomCode } = get();
+        if (roomCode) {
+          const storedData = get().loadObserverDataFromStorage(roomCode);
+          if (storedData) {
+            console.log(
+              `✅ Loaded observer data from storage for room ${roomCode}`
+            );
+            set({ observerData: storedData });
+          }
+        }
+      }
+    },
 
-    addObserverUpdate: (update) => {
-      const { observerData } = get();
-      const currentUpdates = observerData?.observerUpdates || [];
-
+    setObserverData: (observerData) => {
       set({
         observerData: {
           ...observerData,
-          observerUpdates: [...currentUpdates, update].slice(-100), // Keep last 100 updates
-        } as ObserverData,
+          roomCode: get().roomCode || observerData.roomCode,
+        },
+        lastObserverSync: new Date().toISOString(),
       });
+
+      // Save to storage if persistence enabled
+      const { observerPersistenceEnabled, roomCode } = get();
+      if (observerPersistenceEnabled && roomCode) {
+        setTimeout(() => get().saveObserverDataToStorage(), 100);
+      }
+    },
+
+    addObserverUpdate: (update) => {
+      const { observerData, observerPersistenceEnabled, roomCode } = get();
+      const currentUpdates = observerData?.observerUpdates || [];
+
+      // Avoid duplicates based on timestamp and content
+      const isDuplicate = currentUpdates.some(
+        (existing) =>
+          existing.timestamp === update.timestamp &&
+          existing.content === update.content &&
+          existing.playerId === update.playerId
+      );
+
+      if (!isDuplicate) {
+        const newObserverData: ObserverData = {
+          ...observerData,
+          observerUpdates: [...currentUpdates, update].slice(-100), // Keep last 100 updates
+          lastUpdated: new Date().toISOString(),
+          roomCode: roomCode || observerData?.roomCode,
+        } as ObserverData;
+
+        set({ observerData: newObserverData });
+
+        // Save to storage if persistence enabled
+        if (observerPersistenceEnabled && roomCode) {
+          setTimeout(() => get().saveObserverDataToStorage(), 50);
+        }
+
+        console.log(
+          `📊 Added observer update: ${update.type} from ${
+            update.playerName || update.playerId
+          }`
+        );
+      }
     },
 
     setSelectedPlayer: (selectedPlayer) => set({ selectedPlayer }),
@@ -153,12 +269,28 @@ export const useGameStore = create<GameStore>()(
 
     setAutoScroll: (autoScroll) => set({ autoScroll }),
 
+    setMessageFilter: (messageFilter) => set({ messageFilter }),
+
     setConnectionState: (isConnected, connectionError) =>
       set({ isConnected, connectionError }),
 
-    setRoomCode: (roomCode) => set({ roomCode }),
+    setRoomCode: (roomCode) => {
+      set({ roomCode });
 
-    clearGame: () =>
+      // Load observer data for new room if in observer mode
+      const { isObserver } = get();
+      if (isObserver && roomCode) {
+        const storedData = get().loadObserverDataFromStorage(roomCode);
+        if (storedData) {
+          console.log(`✅ Loaded observer data for room ${roomCode}`);
+          set({ observerData: storedData });
+        }
+      }
+    },
+
+    clearGame: () => {
+      const { roomCode } = get();
+
       set({
         gameState: null,
         currentPlayer: null,
@@ -167,7 +299,144 @@ export const useGameStore = create<GameStore>()(
         selectedPlayer: null,
         connectionError: null,
         roomCode: null,
-      }),
+        lastObserverSync: null,
+      });
+
+      // Clear observer storage for this room
+      if (roomCode) {
+        get().clearObserverStorage(roomCode);
+      }
+    },
+
+    // FIXED: Observer persistence methods
+    saveObserverDataToStorage: () => {
+      const { observerData, roomCode, observerPersistenceEnabled } = get();
+
+      if (!observerPersistenceEnabled || !roomCode || !observerData) {
+        return;
+      }
+
+      try {
+        const storageKey = getObserverStorageKey(roomCode);
+        const sanitizedData = sanitizeObserverDataForStorage(observerData);
+
+        localStorage.setItem(storageKey, JSON.stringify(sanitizedData));
+
+        console.log(
+          `💾 Saved observer data for room ${roomCode} (${observerData.observerUpdates.length} updates)`
+        );
+      } catch (error) {
+        console.warn("Failed to save observer data to localStorage:", error);
+      }
+    },
+
+    loadObserverDataFromStorage: (roomCode: string): ObserverData | null => {
+      const { observerPersistenceEnabled } = get();
+
+      if (!observerPersistenceEnabled) {
+        return null;
+      }
+
+      try {
+        const storageKey = getObserverStorageKey(roomCode);
+        const storedData = localStorage.getItem(storageKey);
+
+        if (storedData) {
+          const parsed = JSON.parse(storedData);
+          console.log(
+            `📂 Loaded observer data for room ${roomCode} (${
+              parsed.observerUpdates?.length || 0
+            } updates)`
+          );
+          return parsed;
+        }
+      } catch (error) {
+        console.warn("Failed to load observer data from localStorage:", error);
+      }
+
+      return null;
+    },
+
+    mergeObserverData: (newData: ObserverData) => {
+      const { observerData } = get();
+
+      if (!observerData) {
+        get().setObserverData(newData);
+        return;
+      }
+
+      // Merge observer updates, avoiding duplicates
+      const existingUpdates = observerData.observerUpdates || [];
+      const newUpdates = newData.observerUpdates || [];
+
+      const existingTimestamps = new Set(
+        existingUpdates.map((u) => `${u.timestamp}-${u.playerId}-${u.type}`)
+      );
+
+      const uniqueNewUpdates = newUpdates.filter(
+        (update) =>
+          !existingTimestamps.has(
+            `${update.timestamp}-${update.playerId}-${update.type}`
+          )
+      );
+
+      const mergedUpdates = [...existingUpdates, ...uniqueNewUpdates]
+        .sort(
+          (a, b) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        )
+        .slice(-100); // Keep last 100
+
+      const mergedData: ObserverData = {
+        ...newData,
+        observerUpdates: mergedUpdates,
+        suspicionMatrix: {
+          ...observerData.suspicionMatrix,
+          ...newData.suspicionMatrix,
+        },
+        gameAnalytics: {
+          ...observerData.gameAnalytics,
+          ...newData.gameAnalytics,
+        },
+        phaseHistory: [
+          ...(observerData.phaseHistory || []),
+          ...(newData.phaseHistory || []),
+        ].slice(-20), // Keep last 20 phases
+        lastUpdated: new Date().toISOString(),
+        roomCode: get().roomCode || newData.roomCode,
+      };
+
+      set({ observerData: mergedData });
+
+      console.log(
+        `🔄 Merged observer data: ${uniqueNewUpdates.length} new updates`
+      );
+    },
+
+    clearObserverStorage: (roomCode?: string) => {
+      if (roomCode) {
+        try {
+          const storageKey = getObserverStorageKey(roomCode);
+          localStorage.removeItem(storageKey);
+          console.log(`🗑️ Cleared observer storage for room ${roomCode}`);
+        } catch (error) {
+          console.warn("Failed to clear observer storage:", error);
+        }
+      } else {
+        // Clear all observer storage
+        try {
+          const keys = Object.keys(localStorage).filter((key) =>
+            key.startsWith("observer_data_")
+          );
+          keys.forEach((key) => localStorage.removeItem(key));
+          console.log(
+            `🗑️ Cleared all observer storage (${keys.length} entries)`
+          );
+        } catch (error) {
+          console.warn("Failed to clear all observer storage:", error);
+        }
+      }
+    },
 
     // Computed getters
     getAlivePlayers: () => {
@@ -275,6 +544,15 @@ export const useGameStore = create<GameStore>()(
       );
     },
 
+    getObserverUpdatesByPhase: (phase) => {
+      const { observerData } = get();
+      if (!observerData?.observerUpdates) return [];
+
+      return observerData.observerUpdates.filter(
+        (update) => update.phase === phase
+      );
+    },
+
     getSuspicionLevel: (playerId) => {
       const { observerData } = get();
       if (!observerData?.suspicionMatrix) return 5.0;
@@ -297,10 +575,22 @@ export const useGameStore = create<GameStore>()(
       const suspicionLevel = get().getSuspicionLevel(playerId);
       return 10 - suspicionLevel; // Inverse of suspicion
     },
+
+    getObserverUpdateStats: () => {
+      const { observerData } = get();
+      if (!observerData?.observerUpdates) return {};
+
+      const stats: Record<string, number> = {};
+      observerData.observerUpdates.forEach((update) => {
+        stats[update.type] = (stats[update.type] || 0) + 1;
+      });
+
+      return stats;
+    },
   }))
 );
 
-// Subscribe to changes for persistence and side effects
+// FIXED: Subscribe to changes for persistence and side effects
 useGameStore.subscribe(
   (state) => state.soundEnabled,
   (soundEnabled) => {
@@ -329,7 +619,26 @@ useGameStore.subscribe(
   }
 );
 
-// Initialize store from localStorage
+// FIXED: Subscribe to observer data changes for auto-save
+useGameStore.subscribe(
+  (state) => state.observerData,
+  (observerData) => {
+    const state = useGameStore.getState();
+    if (
+      observerData &&
+      state.isObserver &&
+      state.observerPersistenceEnabled &&
+      state.roomCode
+    ) {
+      // Debounced save to avoid excessive localStorage writes
+      setTimeout(() => {
+        state.saveObserverDataToStorage();
+      }, 500);
+    }
+  }
+);
+
+// FIXED: Initialize store from localStorage with enhanced observer support
 if (typeof window !== "undefined") {
   const soundEnabled = localStorage.getItem("soundEnabled");
   if (soundEnabled) {
@@ -342,6 +651,7 @@ if (typeof window !== "undefined") {
       useGameStore.getState().setCurrentPlayer(JSON.parse(currentPlayer));
     } catch (error) {
       console.warn("Failed to restore current player from localStorage");
+      localStorage.removeItem("currentPlayer");
     }
   }
 
@@ -351,7 +661,35 @@ if (typeof window !== "undefined") {
       useGameStore.getState().setObserver(JSON.parse(observerMode));
     } catch (error) {
       console.warn("Failed to restore observer mode from localStorage");
+      localStorage.removeItem("observerMode");
     }
+  }
+
+  // FIXED: Cleanup old observer data on startup (older than 24 hours)
+  try {
+    const keys = Object.keys(localStorage).filter((key) =>
+      key.startsWith("observer_data_")
+    );
+
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+    keys.forEach((key) => {
+      try {
+        const data = JSON.parse(localStorage.getItem(key) || "{}");
+        const lastUpdated = new Date(data.lastUpdated || 0).getTime();
+
+        if (lastUpdated < oneDayAgo) {
+          localStorage.removeItem(key);
+          console.log(`🧹 Cleaned up old observer data: ${key}`);
+        }
+      } catch (error) {
+        // Remove corrupted data
+        localStorage.removeItem(key);
+        console.log(`🧹 Removed corrupted observer data: ${key}`);
+      }
+    });
+  } catch (error) {
+    console.warn("Failed to cleanup old observer data:", error);
   }
 }
 
@@ -373,13 +711,26 @@ export const useCanPlayerAct = (playerId: string) =>
 export const usePhaseTimeRemaining = () =>
   useGameStore((state) => state.getCurrentPhaseTimeRemaining());
 
-// Hook for observer updates with real-time updates
-export const useObserverUpdates = (type?: string, count = 10) => {
+// FIXED: Enhanced hook for observer updates with real-time updates and filtering
+export const useObserverUpdates = (
+  type?: string,
+  count = 10,
+  phase?: string
+) => {
   return useGameStore((state) => {
+    if (!state.observerData?.observerUpdates) return [];
+
+    let updates = state.observerData.observerUpdates;
+
     if (type) {
-      return state.getObserverUpdatesByType(type);
+      updates = updates.filter((update) => update.type === type);
     }
-    return state.getLatestObserverUpdates(count);
+
+    if (phase) {
+      updates = updates.filter((update) => update.phase === phase);
+    }
+
+    return updates.slice(-count).reverse(); // Most recent first
   });
 };
 
@@ -388,5 +739,20 @@ export const usePlayerSuspicion = (playerId: string) => {
   return useGameStore((state) => ({
     suspicion: state.getSuspicionLevel(playerId),
     trust: state.getTrustLevel(playerId),
+  }));
+};
+
+// FIXED: Hook for observer update statistics
+export const useObserverUpdateStats = () => {
+  return useGameStore((state) => state.getObserverUpdateStats());
+};
+
+// FIXED: Hook for observer persistence status
+export const useObserverPersistence = () => {
+  return useGameStore((state) => ({
+    isEnabled: state.observerPersistenceEnabled,
+    lastSync: state.lastObserverSync,
+    hasStoredData: !!state.observerData?.observerUpdates?.length,
+    roomCode: state.roomCode,
   }));
 };

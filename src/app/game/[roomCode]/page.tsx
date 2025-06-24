@@ -1,4 +1,4 @@
-// src/app/game/[roomCode]/page.tsx - Complete Fixed Version
+// src/app/game/[roomCode]/page.tsx - FIXED: Complete Observer Persistence and Rejoin Logic
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,9 +16,15 @@ import {
   Monitor,
   User,
   Zap,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  Database,
+  Clock,
 } from "lucide-react";
 import { useSocket } from "@/lib/socket-context";
 import { useGameStore } from "@/stores/game-store";
+import { Message } from "@/types/game";
 import { ChatArea } from "@/components/chat-area";
 import { VotingPanel } from "@/components/voting-panel";
 import { NightActionPanel } from "@/components/night-action-panel";
@@ -108,6 +114,55 @@ const CreatorObserverPanel = () => {
   );
 };
 
+// FIXED: Enhanced Connection Status Component
+const ConnectionStatus = ({
+  isConnected,
+  error,
+  isObserver,
+  hasStoredData,
+}: {
+  isConnected: boolean;
+  error?: string | null;
+  isObserver: boolean;
+  hasStoredData: boolean;
+}) => {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <div className="flex items-center gap-1">
+        {isConnected ? (
+          <Wifi className="w-3 h-3 text-green-400" />
+        ) : (
+          <WifiOff className="w-3 h-3 text-red-400" />
+        )}
+        <span className={isConnected ? "text-green-400" : "text-red-400"}>
+          {isConnected ? "Connected" : "Disconnected"}
+        </span>
+      </div>
+
+      {isObserver && (
+        <>
+          <span className="text-gray-500">•</span>
+          <div className="flex items-center gap-1">
+            <Database className="w-3 h-3 text-blue-400" />
+            <span className="text-blue-400">
+              {hasStoredData ? "Data Cached" : "No Cache"}
+            </span>
+          </div>
+        </>
+      )}
+
+      {error && (
+        <>
+          <span className="text-gray-500">•</span>
+          <span className="text-red-400 truncate max-w-32" title={error}>
+            {error}
+          </span>
+        </>
+      )}
+    </div>
+  );
+};
+
 export default function GamePage() {
   const params = useParams();
   const router = useRouter();
@@ -121,18 +176,35 @@ export default function GamePage() {
     castVote,
     performNightAction,
   } = useSocket();
-  const { gameState, currentPlayer, setGameState, setCurrentPlayer } =
-    useGameStore();
 
-  const [isObserver, setIsObserver] = useState(false);
-  const [observerData, setObserverData] = useState<any>(null);
-  const [showObserverPanel, setShowObserverPanel] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const {
+    gameState,
+    currentPlayer,
+    isObserver,
+    observerData,
+    showObserverPanel,
+    soundEnabled,
+    setGameState,
+    setCurrentPlayer,
+    setObserver,
+    setObserverData,
+    setShowObserverPanel,
+    setSoundEnabled,
+    setRoomCode,
+    addObserverUpdate,
+    mergeObserverData,
+    loadObserverDataFromStorage,
+    saveObserverDataToStorage,
+  } = useGameStore();
+
   const [autoScroll, setAutoScroll] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [rejoinAttempts, setRejoinAttempts] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
 
-  // FIXED: Enhanced room joining with proper observer mode detection
+  // FIXED: Enhanced room joining with comprehensive observer mode detection and persistence
   useEffect(() => {
     if (!isConnected || !roomCode) return;
 
@@ -140,22 +212,42 @@ export default function GamePage() {
       localStorage.getItem("playerName") || `Player_${Date.now()}`;
     const playerId = localStorage.getItem("playerId") ?? undefined;
 
-    // FIXED: Better observer mode detection from URL and localStorage
+    // FIXED: Comprehensive observer mode detection from multiple sources
     const urlParams = new URLSearchParams(window.location.search);
     const observerMode =
       urlParams.get("observer") === "true" ||
       urlParams.get("spectate") === "true" ||
-      localStorage.getItem("observerMode") === "true";
+      urlParams.get("watch") === "true" ||
+      localStorage.getItem("observerMode") === "true" ||
+      localStorage.getItem(`observer_${roomCode}`) === "true";
 
-    console.log("🔍 Join parameters:", {
+    console.log("🔍 Enhanced join parameters:", {
       roomCode,
       playerName,
       playerId,
       observerMode,
       urlParams: Object.fromEntries(urlParams.entries()),
+      localStorage: {
+        observerMode: localStorage.getItem("observerMode"),
+        roomSpecificObserver: localStorage.getItem(`observer_${roomCode}`),
+      },
     });
 
-    setIsObserver(observerMode);
+    // Set observer mode immediately for UI updates
+    setObserver(observerMode);
+    setRoomCode(roomCode);
+
+    // FIXED: Pre-load observer data from storage if available
+    if (observerMode) {
+      const storedData = loadObserverDataFromStorage(roomCode);
+      if (storedData) {
+        console.log(`📂 Pre-loaded observer data for room ${roomCode}:`, {
+          updates: storedData.observerUpdates?.length || 0,
+          lastUpdated: storedData.lastUpdated,
+        });
+        setObserverData(storedData);
+      }
+    }
 
     joinRoom({
       roomCode,
@@ -165,16 +257,38 @@ export default function GamePage() {
     })
       .then((response) => {
         setIsLoading(false);
-        console.log("✅ Join response:", response);
+        setConnectionError(null);
+        setRejoinAttempts(0);
+        setLastSyncTime(new Date());
+
+        console.log("✅ Enhanced join response:", response);
 
         if (response.success) {
           if (observerMode) {
-            console.log("✅ Successfully joined as observer");
+            console.log(
+              "✅ Successfully joined as observer with enhanced persistence"
+            );
             localStorage.setItem("observerMode", "true");
+            localStorage.setItem(`observer_${roomCode}`, "true");
+
+            // FIXED: Handle complete observer data from server
+            if (response.observerData) {
+              console.log(
+                "🔄 Merging server observer data with local cache..."
+              );
+              mergeObserverData(response.observerData);
+              setLastSyncTime(new Date());
+            }
           } else {
             setCurrentPlayer(response.player);
             console.log("✅ Successfully joined as player");
             localStorage.setItem("observerMode", "false");
+            localStorage.removeItem(`observer_${roomCode}`);
+          }
+
+          // Set game state if provided
+          if (response.gameState) {
+            setGameState(response.gameState);
           }
         } else {
           console.error("❌ Join failed:", response.message);
@@ -185,27 +299,44 @@ export default function GamePage() {
         setIsLoading(false);
         console.error("❌ Join error:", error);
         setConnectionError(error.message || "Connection failed");
-      });
-  }, [isConnected, roomCode, joinRoom, setCurrentPlayer]);
 
-  // FIXED: Enhanced observer event handler
+        // FIXED: Increment rejoin attempts for potential retry logic
+        setRejoinAttempts((prev) => prev + 1);
+      });
+  }, [isConnected, roomCode, rejoinAttempts]);
+
+  // FIXED: Enhanced observer event handler with complete data merging
   useEffect(() => {
     if (!socket) return;
 
     const handleObserverJoined = (data: any) => {
-      console.log("👁️ Observer joined successfully:", data);
-      setIsObserver(true);
+      console.log("👁️ Observer joined successfully with enhanced data:", {
+        observerData: !!data.observerData,
+        gameState: !!data.gameState,
+        players: data.players?.length || 0,
+      });
+
+      setObserver(true);
+      setLastSyncTime(new Date());
 
       if (data.gameState) {
         setGameState(data.gameState);
       }
 
+      // FIXED: Comprehensive observer data handling
       if (data.observerData) {
-        setObserverData(data.observerData);
+        console.log("🔄 Processing complete observer data from server...");
+        mergeObserverData(data.observerData);
+
+        // Save to storage immediately
+        setTimeout(() => {
+          saveObserverDataToStorage();
+        }, 100);
       }
 
       // Ensure observer mode is persisted
       localStorage.setItem("observerMode", "true");
+      localStorage.setItem(`observer_${roomCode}`, "true");
     };
 
     const handleRoomJoined = (data: any) => {
@@ -217,6 +348,8 @@ export default function GamePage() {
 
       // Ensure player mode is set
       localStorage.setItem("observerMode", "false");
+      localStorage.removeItem(`observer_${roomCode}`);
+      setLastSyncTime(new Date());
     };
 
     // Register both handlers
@@ -227,32 +360,41 @@ export default function GamePage() {
       socket.off("observer_joined", handleObserverJoined);
       socket.off("room_joined", handleRoomJoined);
     };
-  }, [socket, setGameState, setObserverData]);
+  }, [socket, setGameState, setObserverData, roomCode]);
 
-  // Main socket event handlers
+  // FIXED: Enhanced socket event handlers with observer persistence
   useEffect(() => {
     if (!socket) return;
 
     const handleGameStateUpdate = (newGameState: any) => {
-      console.log("📊 Game state update:", newGameState);
-      setGameState(newGameState);
+      console.log("📊 Game state update received:", {
+        phase: newGameState.phase,
+        round: newGameState.currentRound,
+        players: newGameState.players?.length || 0,
+        observerData: !!newGameState.observerData,
+      });
 
-      // Extract observer data if present
-      if (newGameState.observerData) {
-        setObserverData(newGameState.observerData);
+      setGameState(newGameState);
+      setLastSyncTime(new Date());
+
+      // Extract and merge observer data if present
+      if (newGameState.observerData && isObserver) {
+        mergeObserverData(newGameState.observerData);
       }
     };
 
-    const handleObserverUpdate = (update: any) => {
+    const handleObserverUpdate = (data: any) => {
       if (isObserver) {
-        console.log("👁️ Observer update:", update);
-        setObserverData((prev: { observerUpdates: any }) => ({
-          ...prev,
-          observerUpdates: [
-            ...(prev?.observerUpdates || []),
-            update.update,
-          ].slice(-50), // Keep last 50 updates
-        }));
+        console.log("👁️ Observer update received:", {
+          type: data.update?.type,
+          playerName: data.update?.playerName,
+          content: data.update?.content?.substring(0, 50) + "...",
+        });
+
+        if (data.update) {
+          addObserverUpdate(data.update);
+          setLastSyncTime(new Date());
+        }
 
         // Play notification sound
         if (soundEnabled) {
@@ -263,6 +405,8 @@ export default function GamePage() {
 
     const handlePhaseChanged = (data: any) => {
       console.log("🔄 Phase changed:", data);
+      setLastSyncTime(new Date());
+
       // Update game state with new phase
       if (gameState) {
         setGameState({
@@ -282,8 +426,35 @@ export default function GamePage() {
       }
     };
 
+    // FIXED: Handle phase separators for better chat visualization
+    const handlePhaseSeparator = (data: any) => {
+      console.log("📏 Phase separator received:", data);
+
+      // Add phase separator as a special message type
+      if (gameState) {
+        // Create a properly typed Message object
+        const phaseSeparatorMessage: Message = {
+          id: `phase-sep-${Date.now()}`,
+          content: data.content,
+          timestamp: data.timestamp || new Date().toISOString(),
+          messageType: "phase_transition" as const,
+          phase: data.phase,
+          round: data.round,
+          playerId: "system",
+        };
+
+        const updatedGameState = {
+          ...gameState,
+          messages: [...(gameState.messages || []), phaseSeparatorMessage],
+        };
+        setGameState(updatedGameState);
+      }
+    };
+
     const handlePlayerEliminated = (data: any) => {
       console.log("💀 Player eliminated:", data);
+      setLastSyncTime(new Date());
+
       // Play elimination sound
       if (soundEnabled) {
         playEliminationSound();
@@ -292,6 +463,8 @@ export default function GamePage() {
 
     const handleGameEnded = (data: any) => {
       console.log("🏁 Game ended:", data);
+      setLastSyncTime(new Date());
+
       // Play game end sound
       if (soundEnabled) {
         playGameEndSound(data.winner);
@@ -301,6 +474,13 @@ export default function GamePage() {
     const handleRoomTerminated = (data: any) => {
       console.log("🔥 Room terminated:", data);
       setConnectionError(`Room was terminated: ${data.message}`);
+
+      // Clear observer storage for this room
+      if (isObserver) {
+        localStorage.removeItem(`observer_data_${roomCode}`);
+        localStorage.removeItem(`observer_${roomCode}`);
+      }
+
       setTimeout(() => {
         router.push("/");
       }, 3000);
@@ -309,12 +489,14 @@ export default function GamePage() {
     const handleError = (error: any) => {
       console.error("🔥 Socket error:", error);
       setConnectionError(error.message || "Socket error occurred");
+      setLastSyncTime(new Date());
     };
 
     // Register event listeners
     socket.on("game_state_update", handleGameStateUpdate);
     socket.on("observer_update", handleObserverUpdate);
     socket.on("phase_changed", handlePhaseChanged);
+    socket.on("phase_separator", handlePhaseSeparator);
     socket.on("player_eliminated", handlePlayerEliminated);
     socket.on("game_ended", handleGameEnded);
     socket.on("room_terminated", handleRoomTerminated);
@@ -324,12 +506,33 @@ export default function GamePage() {
       socket.off("game_state_update", handleGameStateUpdate);
       socket.off("observer_update", handleObserverUpdate);
       socket.off("phase_changed", handlePhaseChanged);
+      socket.off("phase_separator", handlePhaseSeparator);
       socket.off("player_eliminated", handlePlayerEliminated);
       socket.off("game_ended", handleGameEnded);
       socket.off("room_terminated", handleRoomTerminated);
       socket.off("error", handleError);
     };
-  }, [socket, isObserver, soundEnabled, gameState, setGameState, router]);
+  }, [
+    socket,
+    isObserver,
+    soundEnabled,
+    gameState,
+    setGameState,
+    roomCode,
+    router,
+  ]);
+
+  // FIXED: Auto-save observer data periodically
+  useEffect(() => {
+    if (!isObserver || !observerData || !roomCode) return;
+
+    const saveInterval = setInterval(() => {
+      saveObserverDataToStorage();
+      console.log("💾 Auto-saved observer data");
+    }, 30000); // Save every 30 seconds
+
+    return () => clearInterval(saveInterval);
+  }, [isObserver, observerData, roomCode]);
 
   // Sound effects
   const playNotificationSound = () => {
@@ -406,7 +609,16 @@ export default function GamePage() {
   const handleLeaveRoom = () => {
     // Clear observer mode when leaving
     localStorage.removeItem("observerMode");
+    localStorage.removeItem(`observer_${roomCode}`);
     router.push("/");
+  };
+
+  // FIXED: Manual reconnection function
+  const handleReconnect = () => {
+    setIsLoading(true);
+    setConnectionError(null);
+    setRejoinAttempts((prev) => prev + 1);
+    window.location.reload();
   };
 
   // Helper functions
@@ -452,6 +664,11 @@ export default function GamePage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
           <p className="text-gray-400">Connecting to game...</p>
           <p className="text-sm text-gray-500 mt-2">Room: {roomCode}</p>
+          {rejoinAttempts > 0 && (
+            <p className="text-xs text-yellow-400 mt-1">
+              Attempt {rejoinAttempts}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -465,18 +682,38 @@ export default function GamePage() {
           <p className="text-gray-400 mb-6">{connectionError}</p>
           <div className="space-y-3">
             <button
+              onClick={handleReconnect}
+              className="btn-detective px-6 py-2 w-full flex items-center justify-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reconnect
+            </button>
+            <button
               onClick={handleLeaveRoom}
-              className="btn-detective px-6 py-2 w-full"
+              className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors w-full"
             >
               Return to Lobby
             </button>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors w-full"
-            >
-              Try Again
-            </button>
           </div>
+          {rejoinAttempts > 2 && (
+            <div className="mt-4 text-xs text-gray-500">
+              <p>Having trouble connecting?</p>
+              <button
+                onClick={() => setShowDebugInfo(!showDebugInfo)}
+                className="text-blue-400 hover:text-blue-300 underline"
+              >
+                Show debug info
+              </button>
+              {showDebugInfo && (
+                <div className="mt-2 text-left bg-gray-800 p-2 rounded text-xs">
+                  <div>Room: {roomCode}</div>
+                  <div>Observer: {isObserver ? "Yes" : "No"}</div>
+                  <div>Attempts: {rejoinAttempts}</div>
+                  <div>Cached Data: {observerData ? "Yes" : "No"}</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -484,7 +721,7 @@ export default function GamePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-      {/* Header */}
+      {/* FIXED: Enhanced Header with Connection Status */}
       <div className="border-b border-gray-700 bg-gray-900/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -512,12 +749,38 @@ export default function GamePage() {
                     <span className="text-sm font-medium">Player</span>
                   </div>
                 )}
+                {lastSyncTime && (
+                  <div
+                    className="text-xs text-gray-500"
+                    title={`Last sync: ${lastSyncTime.toLocaleTimeString()}`}
+                  >
+                    <Clock className="w-3 h-3 inline mr-1" />
+                    {lastSyncTime.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="flex items-center gap-4">
-              {/* Phase Display */}
-              {gameState?.phase && <GamePhaseDisplay phase={gameState.phase} />}
+              {/* Enhanced Phase Display */}
+              {gameState?.phase && (
+                <GamePhaseDisplay
+                  phase={gameState.phase}
+                  round={gameState.currentRound}
+                  currentSpeaker={
+                    gameState.currentSpeaker
+                      ? getAllPlayers().find(
+                          (p) => p.id === gameState.currentSpeaker
+                        )?.name
+                      : undefined
+                  }
+                  totalPlayers={getAllPlayers().length}
+                  alivePlayers={getAlivePlayers().length}
+                />
+              )}
 
               {/* Controls */}
               <div className="flex items-center gap-2">
@@ -551,9 +814,13 @@ export default function GamePage() {
                   )}
                 </button>
 
-                <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <Users className="w-4 h-4" />
-                  <span>{getAllPlayers().length}</span>
+                <div className="flex items-center gap-2 text-sm">
+                  <ConnectionStatus
+                    isConnected={isConnected}
+                    error={connectionError}
+                    isObserver={isObserver}
+                    hasStoredData={!!observerData?.observerUpdates?.length}
+                  />
                 </div>
               </div>
             </div>
@@ -570,7 +837,10 @@ export default function GamePage() {
         >
           {/* Players Panel */}
           <div className="space-y-4">
-            <h3 className="text-lg font-bold text-white mb-4">Players</h3>
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Players ({getAlivePlayers().length}/{getAllPlayers().length})
+            </h3>
             <div className="space-y-2">
               {getAllPlayers().map((player: any) => (
                 <PlayerCard
@@ -632,7 +902,7 @@ export default function GamePage() {
               )}
             </AnimatePresence>
 
-            {/* Chat Area */}
+            {/* Enhanced Chat Area */}
             <div className="glass-card h-96">
               <ChatArea
                 messages={gameState?.messages || []}
@@ -693,6 +963,14 @@ export default function GamePage() {
                       {getAllPlayers().length - getAlivePlayers().length}
                     </span>
                   </div>
+                  {isObserver && observerData && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Observer Updates:</span>
+                      <span className="text-purple-400 font-medium">
+                        {observerData.observerUpdates?.length || 0}
+                      </span>
+                    </div>
+                  )}
                   {gameState?.winner && (
                     <div className="mt-4 p-3 bg-green-500/20 border border-green-500/30 rounded-lg">
                       <div className="text-green-400 font-bold text-center">
@@ -725,32 +1003,27 @@ export default function GamePage() {
                 </div>
               )}
 
-              {/* Connection Status */}
+              {/* Enhanced Connection Status */}
               <div className="glass-card p-4">
                 <h3 className="text-sm font-bold text-white mb-2">Status</h3>
                 <div className="space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Connection:</span>
-                    <span
-                      className={`font-medium ${
-                        isConnected ? "text-green-400" : "text-red-400"
-                      }`}
-                    >
-                      {isConnected ? "Connected" : "Disconnected"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Mode:</span>
-                    <span className="text-white font-medium">
-                      {isObserver ? "Observer" : "Player"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Sound:</span>
-                    <span className="text-white font-medium">
-                      {soundEnabled ? "On" : "Off"}
-                    </span>
-                  </div>
+                  <ConnectionStatus
+                    isConnected={isConnected}
+                    error={connectionError}
+                    isObserver={isObserver}
+                    hasStoredData={!!observerData?.observerUpdates?.length}
+                  />
+                  {lastSyncTime && (
+                    <div className="text-gray-500">
+                      Last sync: {lastSyncTime.toLocaleTimeString()}
+                    </div>
+                  )}
+                  {isObserver && observerData?.lastUpdated && (
+                    <div className="text-gray-500">
+                      Cache:{" "}
+                      {new Date(observerData.lastUpdated).toLocaleTimeString()}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
