@@ -1,4 +1,4 @@
-// src/app/auth/signin/page.tsx - Fixed with Suspense
+// src/app/auth/signin/page.tsx - Updated with email confirmation handling
 "use client";
 
 import { Suspense } from "react";
@@ -18,6 +18,7 @@ import {
   AlertCircle,
   CheckCircle,
   Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
@@ -27,19 +28,39 @@ function SignInContent() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResendingConfirmation, setIsResendingConfirmation] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [showEmailNotConfirmed, setShowEmailNotConfirmed] = useState(false);
+
   const { login, isAuthenticated } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
   // Redirect URL after successful login
   const redirectTo = searchParams.get("redirect") || "/play";
+  const confirmed = searchParams.get("confirmed");
+  const error = searchParams.get("error");
 
   useEffect(() => {
     if (isAuthenticated) {
       router.push(redirectTo);
     }
   }, [isAuthenticated, router, redirectTo]);
+
+  useEffect(() => {
+    if (confirmed === "true") {
+      toast.success("Email confirmed successfully! You can now sign in.", {
+        duration: 5000,
+        icon: "✅",
+      });
+    }
+
+    if (error === "confirmation_failed") {
+      toast.error(
+        "Email confirmation failed. Please try again or request a new confirmation email."
+      );
+    }
+  }, [confirmed, error]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +71,7 @@ function SignInContent() {
     }
 
     setIsLoading(true);
+    setShowEmailNotConfirmed(false);
 
     try {
       const success = await login(email, password);
@@ -57,10 +79,57 @@ function SignInContent() {
         toast.success("Welcome back, detective! 🕵️‍♂️");
         router.push(redirectTo);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Sign in error:", error);
+
+      // Check if it's an email not confirmed error
+      if (
+        error?.message?.includes("email") &&
+        error?.message?.includes("confirm")
+      ) {
+        setShowEmailNotConfirmed(true);
+      }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      toast.error("Please enter your email address first");
+      return;
+    }
+
+    setIsResendingConfirmation(true);
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/resend-confirmation`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast.success("Confirmation email sent! Check your inbox.", {
+          duration: 8000,
+          icon: "📧",
+        });
+        setShowEmailNotConfirmed(false);
+      } else {
+        toast.error(data.error || "Failed to send confirmation email");
+      }
+    } catch (error) {
+      console.error("Resend confirmation error:", error);
+      toast.error("Failed to send confirmation email");
+    } finally {
+      setIsResendingConfirmation(false);
     }
   };
 
@@ -93,6 +162,43 @@ function SignInContent() {
             Sign in to continue your investigation
           </p>
         </motion.div>
+
+        {/* Email Not Confirmed Alert */}
+        {showEmailNotConfirmed && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <AlertCircle className="w-5 h-5 text-yellow-400" />
+              <h3 className="font-semibold text-yellow-400">
+                Email Not Confirmed
+              </h3>
+            </div>
+            <p className="text-sm text-gray-300 mb-3">
+              Please check your email and click the confirmation link before
+              signing in.
+            </p>
+            <button
+              onClick={handleResendConfirmation}
+              disabled={isResendingConfirmation}
+              className="btn-secondary w-full py-2 text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isResendingConfirmation ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Mail className="w-4 h-4" />
+                  Resend Confirmation Email
+                </>
+              )}
+            </button>
+          </motion.div>
+        )}
 
         {/* Sign In Form */}
         <motion.div
