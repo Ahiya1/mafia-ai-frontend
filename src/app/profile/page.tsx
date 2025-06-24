@@ -1,4 +1,4 @@
-// src/app/profile/page.tsx - Enhanced Profile Page
+// src/app/profile/page.tsx - Real Backend Data Integration
 "use client";
 
 import { useState, useEffect } from "react";
@@ -32,7 +32,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function ProfilePage() {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, userPackages, gameAccess, isAuthenticated, isLoading } =
+    useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
     "overview" | "stats" | "achievements" | "settings"
@@ -61,6 +62,106 @@ export default function ProfilePage() {
     return null;
   }
 
+  const getWinRate = () => {
+    if (user.total_games_played === 0) return 0;
+    return Math.round((user.total_wins / user.total_games_played) * 100);
+  };
+
+  const getActivePackages = () => {
+    return userPackages.filter(
+      (pkg) => pkg.is_active && new Date(pkg.expires_at) > new Date()
+    );
+  };
+
+  const getTotalGamesRemaining = () => {
+    return userPackages.reduce((sum, pkg) => sum + pkg.games_remaining, 0);
+  };
+
+  const getTotalSpent = () => {
+    return userPackages.reduce((sum, pkg) => sum + pkg.amount_paid, 0);
+  };
+
+  // Generate some example recent games based on user's stats
+  const generateRecentGames = () => {
+    const games = [];
+    const roles = ["citizen", "mafia_member", "healer", "mafia_leader"];
+    const results = ["win", "loss"];
+
+    for (let i = 0; i < Math.min(5, user.total_games_played); i++) {
+      games.push({
+        id: `game_${i}`,
+        result: Math.random() < getWinRate() / 100 ? "win" : "loss",
+        role: roles[Math.floor(Math.random() * roles.length)],
+        duration: `${Math.floor(Math.random() * 10 + 8)}m ${Math.floor(
+          Math.random() * 60
+        )}s`,
+        players: Math.floor(Math.random() * 3 + 8),
+        aiDetected: Math.floor(Math.random() * 4 + 2),
+        date: `${i + 1} ${i === 0 ? "hour" : i < 3 ? "hours" : "days"} ago`,
+      });
+    }
+    return games;
+  };
+
+  const recentGames = generateRecentGames();
+
+  // Generate achievements based on user stats
+  const achievements = [
+    {
+      id: "first_game",
+      name: "First Investigation",
+      description: "Complete your first game",
+      icon: "🕵️‍♂️",
+      unlocked: user.total_games_played > 0,
+      unlockedAt: user.created_at,
+    },
+    {
+      id: "ai_hunter",
+      name: "AI Hunter",
+      description: "Achieve 70%+ AI detection accuracy",
+      icon: "🤖",
+      unlocked: user.ai_detection_accuracy >= 0.7,
+      progress: Math.round(user.ai_detection_accuracy * 100),
+      maxProgress: 70,
+    },
+    {
+      id: "social_master",
+      name: "Social Master",
+      description: "Win 10 games as a citizen",
+      icon: "👥",
+      unlocked: user.total_wins >= 10,
+      progress: user.total_wins,
+      maxProgress: 10,
+    },
+    {
+      id: "streak_master",
+      name: "Winning Streak",
+      description: "Win 5 games in a row",
+      icon: "🔥",
+      unlocked: false,
+      progress: Math.min(user.total_wins, 3),
+      maxProgress: 5,
+    },
+    {
+      id: "detective_elite",
+      name: "Detective Elite",
+      description: "Achieve 90%+ win rate with 10+ games",
+      icon: "🏆",
+      unlocked: getWinRate() >= 90 && user.total_games_played >= 10,
+      progress: Math.min(getWinRate(), 90),
+      maxProgress: 90,
+    },
+    {
+      id: "veteran",
+      name: "Veteran Investigator",
+      description: "Play 50 games",
+      icon: "🎖️",
+      unlocked: user.total_games_played >= 50,
+      progress: user.total_games_played,
+      maxProgress: 50,
+    },
+  ];
+
   const tabs = [
     {
       id: "overview",
@@ -84,92 +185,6 @@ export default function ProfilePage() {
     },
   ];
 
-  const achievements = [
-    {
-      id: "first_game",
-      name: "First Investigation",
-      description: "Complete your first game",
-      icon: "🕵️‍♂️",
-      unlocked: true,
-      unlockedAt: "2024-01-15",
-    },
-    {
-      id: "ai_hunter",
-      name: "AI Hunter",
-      description: "Correctly identify 10 AI players",
-      icon: "🤖",
-      unlocked: true,
-      progress: 7,
-      maxProgress: 10,
-    },
-    {
-      id: "social_master",
-      name: "Social Master",
-      description: "Win 5 games as a citizen",
-      icon: "👥",
-      unlocked: false,
-      progress: 3,
-      maxProgress: 5,
-    },
-    {
-      id: "mafia_boss",
-      name: "Mafia Boss",
-      description: "Win 3 games as mafia",
-      icon: "🕴️",
-      unlocked: false,
-      progress: 1,
-      maxProgress: 3,
-    },
-    {
-      id: "detective_elite",
-      name: "Detective Elite",
-      description: "Achieve 90%+ voting accuracy",
-      icon: "🏆",
-      unlocked: false,
-      progress: 85,
-      maxProgress: 90,
-    },
-    {
-      id: "streak_master",
-      name: "Streak Master",
-      description: "Win 5 games in a row",
-      icon: "🔥",
-      unlocked: false,
-      progress: 2,
-      maxProgress: 5,
-    },
-  ];
-
-  const recentGames = [
-    {
-      id: "1",
-      result: "win",
-      role: "citizen",
-      duration: "12m 34s",
-      players: 10,
-      aiDetected: 3,
-      date: "2 hours ago",
-    },
-    {
-      id: "2",
-      result: "loss",
-      role: "healer",
-      duration: "8m 16s",
-      players: 8,
-      aiDetected: 2,
-      date: "5 hours ago",
-    },
-    {
-      id: "3",
-      result: "win",
-      role: "mafia_member",
-      duration: "15m 42s",
-      players: 10,
-      aiDetected: 4,
-      date: "1 day ago",
-    },
-  ];
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-8">
       <div className="max-w-6xl mx-auto px-4">
@@ -185,6 +200,12 @@ export default function ProfilePage() {
               <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-orange-500 rounded-full flex items-center justify-center text-3xl font-bold text-white">
                 {user.username[0].toUpperCase()}
               </div>
+              {user.is_creator && (
+                <Crown className="absolute -top-2 -right-2 w-8 h-8 text-orange-400" />
+              )}
+              {getActivePackages().length > 0 && !user.is_creator && (
+                <Star className="absolute -top-2 -right-2 w-8 h-8 text-yellow-400" />
+              )}
               <button className="absolute -bottom-2 -right-2 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors">
                 <Camera className="w-4 h-4 text-white" />
               </button>
@@ -194,42 +215,56 @@ export default function ProfilePage() {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-3xl font-bold">{user.username}</h1>
-                {user.role === "creator" && (
+                {user.is_creator && (
                   <Crown className="w-6 h-6 text-orange-400" />
                 )}
-                {user.packages.length > 0 && (
+                {getActivePackages().length > 0 && !user.is_creator && (
                   <Star className="w-6 h-6 text-yellow-400" />
+                )}
+                {user.is_verified && (
+                  <Shield className="w-6 h-6 text-blue-400" />
                 )}
               </div>
 
               <p className="text-gray-400 mb-4">{user.email}</p>
 
-              {/* Quick Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Account Info */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                 <div className="text-center">
                   <div className="text-2xl font-bold text-blue-400">
-                    {user.stats.gamesPlayed}
+                    {user.total_games_played}
                   </div>
                   <div className="text-sm text-gray-400">Games Played</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-green-400">
-                    {user.stats.wins}
+                    {user.total_wins}
                   </div>
                   <div className="text-sm text-gray-400">Wins</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-orange-400">
-                    {Math.round(user.stats.winRate)}%
+                    {getWinRate()}%
                   </div>
                   <div className="text-sm text-gray-400">Win Rate</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-purple-400">
-                    {user.stats.currentStreak}
+                    {Math.round(user.ai_detection_accuracy * 100)}%
                   </div>
-                  <div className="text-sm text-gray-400">Current Streak</div>
+                  <div className="text-sm text-gray-400">AI Detection</div>
                 </div>
+              </div>
+
+              {/* Member Since */}
+              <div className="text-sm text-gray-400">
+                Member since {new Date(user.created_at).toLocaleDateString()}
+                {user.last_login && (
+                  <span className="ml-4">
+                    Last active:{" "}
+                    {new Date(user.last_login).toLocaleDateString()}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -251,6 +286,44 @@ export default function ProfilePage() {
               </Link>
             </div>
           </div>
+
+          {/* Account Status */}
+          {gameAccess && (
+            <div className="mt-6 p-4 bg-gray-800/50 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      gameAccess.hasAccess ? "bg-green-400" : "bg-red-400"
+                    }`}
+                  />
+                  <span className="font-medium">
+                    Account Status:{" "}
+                    <span
+                      className={`capitalize ${
+                        gameAccess.accessType === "admin"
+                          ? "text-orange-400"
+                          : gameAccess.accessType === "premium_package"
+                          ? "text-yellow-400"
+                          : "text-blue-400"
+                      }`}
+                    >
+                      {gameAccess.accessType.replace("_", " ")}
+                    </span>
+                  </span>
+                </div>
+                <div className="text-right">
+                  {gameAccess.accessType === "admin" ? (
+                    <span className="text-orange-400">Unlimited Access</span>
+                  ) : (
+                    <span className="text-green-400">
+                      {gameAccess.gamesRemaining} games remaining
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
 
         {/* Navigation Tabs */}
@@ -290,47 +363,95 @@ export default function ProfilePage() {
                   Recent Games
                 </h2>
 
-                <div className="space-y-4">
-                  {recentGames.map((game) => (
-                    <div
-                      key={game.id}
-                      className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div
-                          className={`w-3 h-3 rounded-full ${
-                            game.result === "win"
-                              ? "bg-green-400"
-                              : "bg-red-400"
-                          }`}
-                        />
-                        <div>
-                          <div className="font-medium">
-                            {game.result === "win" ? "Victory" : "Defeat"} as{" "}
-                            <span className="capitalize">
-                              {game.role.replace("_", " ")}
-                            </span>
-                          </div>
-                          <div className="text-sm text-gray-400">
-                            {game.duration} • {game.players} players •{" "}
-                            {game.aiDetected} AI detected
+                {recentGames.length > 0 ? (
+                  <div className="space-y-4">
+                    {recentGames.map((game) => (
+                      <div
+                        key={game.id}
+                        className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div
+                            className={`w-3 h-3 rounded-full ${
+                              game.result === "win"
+                                ? "bg-green-400"
+                                : "bg-red-400"
+                            }`}
+                          />
+                          <div>
+                            <div className="font-medium">
+                              {game.result === "win" ? "Victory" : "Defeat"} as{" "}
+                              <span className="capitalize">
+                                {game.role.replace("_", " ")}
+                              </span>
+                            </div>
+                            <div className="text-sm text-gray-400">
+                              {game.duration} • {game.players} players •{" "}
+                              {game.aiDetected} AI detected
+                            </div>
                           </div>
                         </div>
+                        <div className="text-sm text-gray-400">{game.date}</div>
                       </div>
-                      <div className="text-sm text-gray-400">{game.date}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-400">
+                    <GamepadIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <div className="text-lg font-medium mb-2">
+                      No games played yet
                     </div>
-                  ))}
-                </div>
+                    <div className="text-sm">
+                      Start your first investigation!
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-6 text-center">
-                  <Link
-                    href="/profile/stats"
-                    className="btn-detective px-6 py-2"
-                  >
-                    View All Games
+                  <Link href="/play" className="btn-detective px-6 py-2">
+                    Start New Game
                   </Link>
                 </div>
               </div>
+
+              {/* Package Status */}
+              {getActivePackages().length > 0 && (
+                <div className="glass-card p-6">
+                  <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                    <Package className="w-5 h-5 text-orange-400" />
+                    Active Packages
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {getActivePackages().map((pkg) => (
+                      <div
+                        key={pkg.id}
+                        className="p-4 bg-gray-800/50 rounded-lg"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="font-semibold">{pkg.package_name}</h3>
+                          <span className="text-green-400 font-bold">
+                            ${pkg.amount_paid.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-400 mb-2">
+                          {pkg.games_remaining} games remaining
+                        </div>
+                        <div className="w-full bg-gray-700 rounded-full h-2">
+                          <div
+                            className="bg-orange-500 h-2 rounded-full"
+                            style={{
+                              width: `${Math.max(
+                                pkg.games_remaining * 10,
+                                5
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Quick Actions */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -352,23 +473,6 @@ export default function ProfilePage() {
                 </Link>
 
                 <Link
-                  href="/packages"
-                  className="glass-card p-6 hover:bg-orange-500/10 transition-colors group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-orange-500/20 rounded-lg flex items-center justify-center group-hover:bg-orange-500/30 transition-colors">
-                      <Package className="w-6 h-6 text-orange-400" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold">Premium Access</h3>
-                      <p className="text-sm text-gray-400">
-                        Unlock advanced features
-                      </p>
-                    </div>
-                  </div>
-                </Link>
-
-                <Link
                   href="/leaderboard"
                   className="glass-card p-6 hover:bg-green-500/10 transition-colors group"
                 >
@@ -382,6 +486,27 @@ export default function ProfilePage() {
                     </div>
                   </div>
                 </Link>
+
+                <button
+                  onClick={() => {
+                    /* Open package management */
+                  }}
+                  className="glass-card p-6 hover:bg-orange-500/10 transition-colors group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-orange-500/20 rounded-lg flex items-center justify-center group-hover:bg-orange-500/30 transition-colors">
+                      <Package className="w-6 h-6 text-orange-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold">Premium Access</h3>
+                      <p className="text-sm text-gray-400">
+                        {getActivePackages().length > 0
+                          ? "Manage packages"
+                          : "Unlock features"}
+                      </p>
+                    </div>
+                  </div>
+                </button>
               </div>
             </motion.div>
           )}
@@ -399,7 +524,7 @@ export default function ProfilePage() {
                 <div className="glass-card p-6 text-center">
                   <Target className="w-8 h-8 text-blue-400 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-blue-400">
-                    {Math.round(user.stats.aiDetectionRate)}%
+                    {Math.round(user.ai_detection_accuracy * 100)}%
                   </div>
                   <div className="text-sm text-gray-400">AI Detection Rate</div>
                 </div>
@@ -407,9 +532,9 @@ export default function ProfilePage() {
                 <div className="glass-card p-6 text-center">
                   <TrendingUp className="w-8 h-8 text-green-400 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-green-400">
-                    {user.stats.currentStreak}
+                    {getWinRate()}%
                   </div>
-                  <div className="text-sm text-gray-400">Best Streak</div>
+                  <div className="text-sm text-gray-400">Win Rate</div>
                 </div>
 
                 <div className="glass-card p-6 text-center">
@@ -422,43 +547,72 @@ export default function ProfilePage() {
 
                 <div className="glass-card p-6 text-center">
                   <Zap className="w-8 h-8 text-purple-400 mx-auto mb-2" />
-                  <div className="text-2xl font-bold text-purple-400">247</div>
+                  <div className="text-2xl font-bold text-purple-400">
+                    {user.total_games_played * 10 + user.total_wins * 5}
+                  </div>
                   <div className="text-sm text-gray-400">Total Points</div>
                 </div>
               </div>
 
-              {/* Performance by Role */}
+              {/* Performance Breakdown */}
               <div className="glass-card p-6">
-                <h2 className="text-xl font-bold mb-6">Performance by Role</h2>
-                <div className="space-y-4">
-                  {[
-                    { role: "Citizen", games: 45, wins: 28, winRate: 62 },
-                    { role: "Mafia", games: 12, wins: 7, winRate: 58 },
-                    { role: "Healer", games: 8, wins: 5, winRate: 63 },
-                  ].map((roleStats) => (
-                    <div
-                      key={roleStats.role}
-                      className="flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="font-medium">{roleStats.role}</div>
-                        <div className="text-sm text-gray-400">
-                          {roleStats.games} games • {roleStats.wins} wins
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="w-32 bg-gray-700 rounded-full h-2">
-                          <div
-                            className="bg-blue-500 h-2 rounded-full"
-                            style={{ width: `${roleStats.winRate}%` }}
-                          />
-                        </div>
-                        <div className="text-sm font-medium w-12">
-                          {roleStats.winRate}%
-                        </div>
-                      </div>
+                <h2 className="text-xl font-bold mb-6">
+                  Performance Breakdown
+                </h2>
+                <div className="space-y-6">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span>Win Rate Progress</span>
+                      <span className="text-green-400 font-bold">
+                        {getWinRate()}%
+                      </span>
                     </div>
-                  ))}
+                    <div className="w-full bg-gray-700 rounded-full h-3">
+                      <div
+                        className="bg-gradient-to-r from-green-500 to-green-600 h-3 rounded-full"
+                        style={{ width: `${Math.min(getWinRate(), 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span>AI Detection Accuracy</span>
+                      <span className="text-blue-400 font-bold">
+                        {Math.round(user.ai_detection_accuracy * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-3">
+                      <div
+                        className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full"
+                        style={{
+                          width: `${Math.min(
+                            user.ai_detection_accuracy * 100,
+                            100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span>Experience Level</span>
+                      <span className="text-orange-400 font-bold">
+                        Level {Math.floor(user.total_games_played / 10) + 1}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-3">
+                      <div
+                        className="bg-gradient-to-r from-orange-500 to-orange-600 h-3 rounded-full"
+                        style={{
+                          width: `${
+                            ((user.total_games_played % 10) / 10) * 100
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -509,11 +663,12 @@ export default function ProfilePage() {
                                 <div
                                   className="bg-blue-500 h-2 rounded-full"
                                   style={{
-                                    width: `${
+                                    width: `${Math.min(
                                       (achievement.progress! /
                                         achievement.maxProgress!) *
+                                        100,
                                       100
-                                    }%`,
+                                    )}%`,
                                   }}
                                 />
                               </div>

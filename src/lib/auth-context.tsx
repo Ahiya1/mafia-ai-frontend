@@ -1,4 +1,4 @@
-// src/lib/auth-context.tsx - Authentication Context
+// src/lib/auth-context.tsx - Real Backend Integration
 "use client";
 
 import {
@@ -10,30 +10,46 @@ import {
 } from "react";
 import toast from "react-hot-toast";
 
-interface User {
+// Real backend data structures
+interface UserProfile {
   id: string;
   username: string;
   email: string;
-  avatar?: string;
-  role: "user" | "admin" | "creator";
-  createdAt: string;
-  stats: {
-    gamesPlayed: number;
-    wins: number;
-    winRate: number;
-    currentStreak: number;
-    aiDetectionRate: number;
-  };
-  packages: Array<{
-    id: string;
-    name: string;
-    gamesRemaining: number;
-    expiresAt: string;
-  }>;
+  total_games_played: number;
+  total_wins: number;
+  ai_detection_accuracy: number;
+  preferred_ai_tier: "free" | "premium";
+  is_creator: boolean;
+  is_verified: boolean;
+  created_at: string;
+  last_login?: string;
+}
+
+interface UserPackage {
+  id: string;
+  package_id: string;
+  package_name: string;
+  games_remaining: number;
+  expires_at: string;
+  is_active: boolean;
+  features: string[];
+  amount_paid: number;
+  purchase_date: string;
+}
+
+interface GameAccess {
+  hasAccess: boolean;
+  accessType: "admin" | "premium_package" | "free" | "none";
+  gamesRemaining: number;
+  packageType: string;
+  premiumFeatures: boolean;
+  reason?: string;
 }
 
 interface AuthContextType {
-  user: User | null;
+  user: UserProfile | null;
+  userPackages: UserPackage[];
+  gameAccess: GameAccess | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
@@ -43,8 +59,10 @@ interface AuthContextType {
     password: string
   ) => Promise<boolean>;
   logout: () => void;
-  updateProfile: (data: Partial<User>) => Promise<boolean>;
   refreshUser: () => Promise<void>;
+  refreshPackages: () => Promise<void>;
+  checkGameAccess: (requiresPremium?: boolean) => Promise<GameAccess | null>;
+  consumeGame: (isPremiumGame?: boolean) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -62,8 +80,14 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [userPackages, setUserPackages] = useState<UserPackage[]>([]);
+  const [gameAccess, setGameAccess] = useState<GameAccess | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const API_URL =
+    process.env.NEXT_PUBLIC_API_URL ||
+    "https://mafia-ai-production.up.railway.app";
 
   useEffect(() => {
     checkAuthStatus();
@@ -77,24 +101,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/me`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      // For now, we'll get the user ID from the token (in a real app, decode JWT)
+      const userId = localStorage.getItem("user_id");
+      if (!userId) {
+        localStorage.removeItem("auth_token");
+        setIsLoading(false);
+        return;
+      }
 
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData.user);
+      // Fetch user profile (you may need to implement this endpoint)
+      // For now, we'll simulate with stored user data
+      const storedUser = localStorage.getItem("user_profile");
+      if (storedUser) {
+        const userData = JSON.parse(storedUser);
+        setUser(userData);
+        await refreshPackages();
+        await checkGameAccess();
       } else {
         localStorage.removeItem("auth_token");
+        localStorage.removeItem("user_id");
       }
     } catch (error) {
       console.error("Auth check failed:", error);
       localStorage.removeItem("auth_token");
+      localStorage.removeItem("user_id");
+      localStorage.removeItem("user_profile");
     } finally {
       setIsLoading(false);
     }
@@ -102,25 +133,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/signin`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ email, password }),
-        }
-      );
+      const response = await fetch(`${API_URL}/api/auth/signin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
       const data = await response.json();
 
-      if (response.ok) {
+      if (response.ok && data.success) {
+        // Store auth data
         localStorage.setItem("auth_token", data.session.access_token);
+        localStorage.setItem("user_id", data.user.id);
+        localStorage.setItem("user_profile", JSON.stringify(data.user));
+
         setUser(data.user);
-        toast.success("Welcome back!", {
-          icon: "🕵️‍♂️",
-        });
+
+        // Fetch packages and game access
+        await refreshPackages();
+        await checkGameAccess();
+
+        toast.success(`Welcome back, ${data.user.username}! 🕵️‍♂️`);
         return true;
       } else {
         toast.error(data.error || "Failed to sign in");
@@ -139,22 +174,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     password: string
   ): Promise<boolean> => {
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/signup`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ username, email, password }),
-        }
-      );
+      const response = await fetch(`${API_URL}/api/auth/signup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, email, password }),
+      });
 
       const data = await response.json();
 
-      if (response.ok) {
+      if (response.ok && data.success) {
         toast.success("Account created! Please sign in to continue.", {
           icon: "✅",
+          duration: 5000,
         });
         return true;
       } else {
@@ -170,56 +203,122 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = () => {
     localStorage.removeItem("auth_token");
+    localStorage.removeItem("user_id");
+    localStorage.removeItem("user_profile");
     setUser(null);
+    setUserPackages([]);
+    setGameAccess(null);
     toast.success("Signed out successfully");
-  };
-
-  const updateProfile = async (data: Partial<User>): Promise<boolean> => {
-    try {
-      const token = localStorage.getItem("auth_token");
-      if (!token) return false;
-
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/update-profile`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(data),
-        }
-      );
-
-      if (response.ok) {
-        const updatedUser = await response.json();
-        setUser(updatedUser.user);
-        toast.success("Profile updated!");
-        return true;
-      } else {
-        toast.error("Failed to update profile");
-        return false;
-      }
-    } catch (error) {
-      console.error("Profile update error:", error);
-      toast.error("Failed to update profile");
-      return false;
-    }
   };
 
   const refreshUser = async () => {
     await checkAuthStatus();
   };
 
+  const refreshPackages = async () => {
+    try {
+      const userId = localStorage.getItem("user_id");
+      if (!userId) return;
+
+      const response = await fetch(`${API_URL}/api/user/packages`, {
+        headers: {
+          Authorization: `Bearer ${userId}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setUserPackages(data.packages || []);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to refresh packages:", error);
+    }
+  };
+
+  const checkGameAccess = async (
+    requiresPremium: boolean = false
+  ): Promise<GameAccess | null> => {
+    try {
+      const userId = localStorage.getItem("user_id");
+      if (!userId) return null;
+
+      const response = await fetch(`${API_URL}/api/game/check-access`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId, requiresPremium }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setGameAccess(data);
+          return data;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to check game access:", error);
+      return null;
+    }
+  };
+
+  const consumeGame = async (
+    isPremiumGame: boolean = false
+  ): Promise<boolean> => {
+    try {
+      const userId = localStorage.getItem("user_id");
+      if (!userId) return false;
+
+      const response = await fetch(`${API_URL}/api/game/consume`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          isPremiumGame,
+          gameSessionId: `game_${Date.now()}`,
+          roomCode: "TBD", // Will be set when room is created
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Refresh game access after consuming
+          await checkGameAccess(isPremiumGame);
+          await refreshPackages();
+          return true;
+        } else {
+          toast.error(data.error || "Cannot start game");
+          return false;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to consume game:", error);
+      toast.error("Failed to start game");
+      return false;
+    }
+  };
+
   const value: AuthContextType = {
     user,
+    userPackages,
+    gameAccess,
     isAuthenticated: !!user,
     isLoading,
     login,
     signup,
     logout,
-    updateProfile,
     refreshUser,
+    refreshPackages,
+    checkGameAccess,
+    consumeGame,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

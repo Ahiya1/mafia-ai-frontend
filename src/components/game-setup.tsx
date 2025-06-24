@@ -1,4 +1,4 @@
-// src/components/game-setup.tsx - Updated with Creator Auto-Premium
+// src/components/game-setup.tsx - Complete Real Backend Integration
 "use client";
 
 import { useState, useEffect } from "react";
@@ -19,22 +19,18 @@ import {
   XCircle,
   RefreshCw,
   ExternalLink,
+  Eye,
+  Package,
+  Clock,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useConnectionStatus, useSocket } from "@/lib/socket-context";
+import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 
 interface GameSetupProps {
   onGameStartAction: () => void;
-}
-
-interface PackageInfo {
-  id: string;
-  name: string;
-  gamesRemaining: number;
-  premiumModelsEnabled: boolean;
-  features: string[];
 }
 
 export function GameSetup({ onGameStartAction }: GameSetupProps) {
@@ -42,133 +38,185 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
   const [roomCode, setRoomCode] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
-  const [gameMode, setGameMode] = useState<"single" | "multiplayer">("single");
+  const [gameMode, setGameMode] = useState<
+    "single" | "multiplayer" | "observer"
+  >("single");
   const [premiumEnabled, setPremiumEnabled] = useState(false);
+  const [joinAsObserver, setJoinAsObserver] = useState(false);
   const [currentStep, setCurrentStep] = useState<
     "mode" | "name" | "premium" | "action"
   >("mode");
-  const [userPackages, setUserPackages] = useState<PackageInfo[]>([]);
-  const [isLoadingPackages, setIsLoadingPackages] = useState(true);
-  const [hasFreePremium, setHasFreePremium] = useState(false);
-  const [isCreator, setIsCreator] = useState(false);
+
   const { createRoom, joinRoom, isConnected, serverStats } = useSocket();
   const { connectionError } = useConnectionStatus();
+  const {
+    user,
+    userPackages,
+    gameAccess,
+    isAuthenticated,
+    isLoading: authLoading,
+    checkGameAccess,
+    consumeGame,
+  } = useAuth();
 
   useEffect(() => {
-    checkUserStatus();
-  }, []);
+    if (user?.username) {
+      setPlayerName(user.username);
+    }
+  }, [user]);
 
-  const checkUserStatus = async () => {
-    setIsLoadingPackages(true);
-    try {
-      // Check if user is a creator first
-      const creatorCheck = await checkCreatorStatus();
+  useEffect(() => {
+    if (isAuthenticated) {
+      checkGameAccess();
+      checkPremiumAccess();
+    }
+  }, [isAuthenticated, userPackages, checkGameAccess]);
 
-      if (creatorCheck) {
-        setIsCreator(true);
-        setHasFreePremium(true);
-        setPremiumEnabled(true);
-        setIsLoadingPackages(false);
-        toast.success("Creator access detected! Premium features enabled.", {
-          icon: "👑",
-          duration: 4000,
-        });
-        return;
-      }
+  const checkPremiumAccess = () => {
+    if (user?.is_creator) {
+      setPremiumEnabled(true);
+      return;
+    }
 
-      // Check user packages if not creator
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/user/packages`,
-        {
-          credentials: "include",
-        }
-      );
+    const hasPremiumPackage = userPackages.some(
+      (pkg) =>
+        pkg.is_active &&
+        new Date(pkg.expires_at) > new Date() &&
+        pkg.features.some(
+          (feature) =>
+            feature.includes("premium_models") ||
+            feature.includes("advanced_analytics")
+        )
+    );
 
-      if (response.ok) {
-        const data = await response.json();
-        const packages = data.packages || [];
-        setUserPackages(packages);
-
-        const hasPremium = packages.some(
-          (pkg: PackageInfo) =>
-            pkg.premiumModelsEnabled && pkg.gamesRemaining > 0
-        );
-        setHasFreePremium(hasPremium);
-
-        if (hasPremium) {
-          setPremiumEnabled(true);
-          toast.success("Premium AI models available!", {
-            icon: "👑",
-            duration: 4000,
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Failed to check user status:", error);
-    } finally {
-      setIsLoadingPackages(false);
+    if (hasPremiumPackage) {
+      setPremiumEnabled(true);
     }
   };
 
-  const checkCreatorStatus = async (): Promise<boolean> => {
-    // Check if creator password is stored in localStorage or session
-    const storedCreatorStatus = localStorage.getItem(
-      "ai_mafia_creator_verified"
+  const getTotalGamesRemaining = () => {
+    if (user?.is_creator) return "Unlimited";
+    return gameAccess?.gamesRemaining || 0;
+  };
+
+  const canCreatePremiumGame = () => {
+    return user?.is_creator || gameAccess?.premiumFeatures;
+  };
+
+  const hasActivePackages = () => {
+    return userPackages.some(
+      (pkg) => pkg.is_active && new Date(pkg.expires_at) > new Date()
     );
-
-    if (storedCreatorStatus === "true") {
-      return true;
-    }
-
-    // Check URL params for creator access
-    const urlParams = new URLSearchParams(window.location.search);
-    const creatorParam = urlParams.get("creator");
-
-    if (creatorParam === "true") {
-      localStorage.setItem("ai_mafia_creator_verified", "true");
-      return true;
-    }
-
-    return false;
   };
 
   const handleCreateRoom = async () => {
     if (!validateInput()) return;
 
+    if (!gameAccess?.hasAccess) {
+      toast.error("No game access available. Please check your packages.");
+      return;
+    }
+
+    if (premiumEnabled && !canCreatePremiumGame()) {
+      toast.error("Premium access required for this game mode");
+      return;
+    }
+
     setIsCreating(true);
 
     try {
-      const roomSettings = {
-        premiumModelsEnabled: premiumEnabled,
-        allowSpectators: false,
-        maxPlayers: 10,
-        isCreator: isCreator,
-      };
+      // Consume a game before creating (unless creator)
+      if (!user?.is_creator) {
+        const consumed = await consumeGame(premiumEnabled);
+        if (!consumed) {
+          setIsCreating(false);
+          return;
+        }
+      }
 
-      await createRoom({
+      // Store player info for the game
+      localStorage.setItem("playerName", playerName.trim());
+      localStorage.setItem("playerId", user?.id || `player_${Date.now()}`);
+      localStorage.setItem("observerMode", "false");
+
+      const response = await createRoom({
         playerName: playerName.trim(),
-        roomSettings,
+        roomSettings: {
+          allowSpectators: true,
+          premiumModelsEnabled: premiumEnabled,
+          gameSpeed: "normal",
+        },
       });
+
+      if (response.success) {
+        toast.success(`Room created: ${response.roomCode}`);
+        onGameStartAction();
+      } else {
+        toast.error(response.message || "Failed to create room");
+      }
     } catch (error) {
       console.error("Failed to create room:", error);
-      toast.error("Failed to create room");
+      toast.error("Failed to create room. Please try again.");
+    } finally {
       setIsCreating(false);
     }
   };
 
   const handleJoinRoom = async () => {
-    if (!validateInput() || !roomCode.trim()) return;
+    if (!roomCode.trim()) {
+      toast.error("Please enter a room code");
+      return;
+    }
+
+    if (!joinAsObserver && !validateInput()) return;
+
+    // Only check game access if joining as a player
+    if (!joinAsObserver && !gameAccess?.hasAccess) {
+      toast.error("No game access available to join as player");
+      return;
+    }
 
     setIsJoining(true);
 
     try {
-      await joinRoom({
+      // Consume a game if joining as a player (unless creator)
+      if (!joinAsObserver && !user?.is_creator) {
+        const consumed = await consumeGame(false); // Assume basic game for joining
+        if (!consumed) {
+          setIsJoining(false);
+          return;
+        }
+      }
+
+      // Store player info for the game
+      const displayName = joinAsObserver
+        ? `Observer_${Date.now()}`
+        : playerName.trim();
+      localStorage.setItem("playerName", displayName);
+      localStorage.setItem("playerId", user?.id || `player_${Date.now()}`);
+      localStorage.setItem("observerMode", joinAsObserver.toString());
+
+      const response = await joinRoom({
         roomCode: roomCode.toUpperCase(),
-        playerName: playerName.trim(),
+        playerName: displayName,
+        playerId: user?.id,
+        observerMode: joinAsObserver,
       });
+
+      if (response.success) {
+        toast.success(
+          joinAsObserver
+            ? `Joined ${roomCode} as observer`
+            : `Joined room ${roomCode}`
+        );
+        onGameStartAction();
+      } else {
+        toast.error(response.message || "Failed to join room");
+      }
     } catch (error) {
       console.error("Failed to join room:", error);
-      toast.error("Failed to join room");
+      toast.error("Failed to join room. Please try again.");
+    } finally {
       setIsJoining(false);
     }
   };
@@ -221,6 +269,21 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
       ],
       aiModels: premiumEnabled ? "Premium AI Models" : "Standard AI Models",
     },
+    {
+      id: "observer",
+      name: "Observer Mode",
+      description: "Watch AI vs AI Games",
+      icon: <Eye className="w-6 h-6" />,
+      recommended: false,
+      features: [
+        "No game consumption",
+        "Learn strategies",
+        "Watch AI compete",
+        "Free entertainment",
+      ],
+      aiModels: "Premium AI Models",
+      free: true,
+    },
   ];
 
   const premiumFeatures = [
@@ -232,12 +295,71 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
     "Advanced post-game analytics",
   ];
 
-  const connectionStatus = isConnected
-    ? "connected"
-    : connectionError
-    ? "error"
-    : "connecting";
+  // Show loading while auth is loading
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="glass-card p-8 text-center max-w-md mx-auto">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 animate-pulse" />
+          <h2 className="text-2xl font-bold mb-4">Loading Game Setup</h2>
+          <div className="loading-dots justify-center">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
+  // Show sign in prompt if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-8 max-w-md w-full text-center"
+        >
+          <Bot className="w-16 h-16 text-orange-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-4">Ready to Investigate?</h2>
+          <p className="text-gray-400 mb-6">
+            Sign in to start playing AI Mafia and track your detective progress.
+          </p>
+          <div className="flex gap-3">
+            <Link href="/auth/signin" className="btn-ghost flex-1">
+              Sign In
+            </Link>
+            <Link href="/auth/signup" className="btn-detective flex-1">
+              Sign Up
+            </Link>
+          </div>
+
+          <div className="mt-6 p-4 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <Eye className="w-4 h-4 text-purple-400" />
+              <span className="text-sm font-medium">Try Observer Mode</span>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">
+              Watch AI games for free without creating an account
+            </p>
+            <button
+              onClick={() => {
+                setGameMode("observer");
+                setJoinAsObserver(true);
+                setCurrentStep("action");
+              }}
+              className="btn-secondary w-full py-2 text-sm"
+            >
+              Watch AI Games
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Show connection status if not connected
   if (!isConnected) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -245,15 +367,16 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 animate-pulse" />
           <h2 className="text-2xl font-bold mb-4">Connecting to Game Server</h2>
           <p className="text-gray-400 mb-6">
-            {connectionStatus === "connecting" && "Establishing connection..."}
-            {connectionStatus === "error" && "Connection failed. Retrying..."}
+            {connectionError
+              ? "Connection failed. Retrying..."
+              : "Establishing connection..."}
           </p>
           <div className="loading-dots justify-center">
             <span></span>
             <span></span>
             <span></span>
           </div>
-          {connectionStatus === "error" && (
+          {connectionError && (
             <button
               onClick={() => window.location.reload()}
               className="btn-detective mt-4 flex items-center gap-2"
@@ -281,13 +404,9 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
               animate={{ rotate: [0, 5, -5, 0] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              <Image
-                src="/detective-logo.png"
-                alt="AI Mafia Detective"
-                width={80}
-                height={80}
-                className="drop-shadow-2xl"
-              />
+              <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-orange-500 rounded-xl flex items-center justify-center text-4xl drop-shadow-2xl">
+                🕵️‍♂️
+              </div>
             </motion.div>
           </div>
 
@@ -298,27 +417,39 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
             Join the ultimate social deduction experience with AI personalities
           </p>
 
-          {/* Creator Badge */}
-          {isCreator && (
-            <div className="mt-6 flex justify-center">
-              <div className="glass-card px-4 py-2 flex items-center gap-3">
-                <Crown className="w-5 h-5 text-orange-400" />
-                <span className="text-orange-400 font-semibold">
-                  Creator Mode Active
-                </span>
-                <Link
-                  href="/admin"
-                  className="text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded hover:bg-orange-500/30"
+          {/* User Status */}
+          <div className="mt-6 flex justify-center">
+            <div className="glass-card px-6 py-3 flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-3 h-3 rounded-full ${
+                    gameAccess?.hasAccess ? "bg-green-400" : "bg-yellow-400"
+                  }`}
+                />
+                <span className="font-medium">Detective {user?.username}</span>
+                {user?.is_creator && (
+                  <Crown className="w-4 h-4 text-orange-400" />
+                )}
+                {hasActivePackages() && !user?.is_creator && (
+                  <Star className="w-4 h-4 text-yellow-400" />
+                )}
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-gray-400">Games Remaining</div>
+                <div
+                  className={`font-bold text-sm ${
+                    user?.is_creator ? "text-orange-400" : "text-green-400"
+                  }`}
                 >
-                  Admin Dashboard
-                </Link>
+                  {getTotalGamesRemaining()}
+                </div>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Server Status */}
           {serverStats && (
-            <div className="mt-6 flex justify-center">
+            <div className="mt-4 flex justify-center">
               <div className="glass-card px-4 py-2 flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -337,6 +468,45 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
           )}
         </motion.div>
 
+        {/* Game Access Warning */}
+        {!gameAccess?.hasAccess && !user?.is_creator && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-2xl mx-auto mb-8"
+          >
+            <div className="glass-card p-6 border-l-4 border-yellow-500">
+              <div className="flex items-center gap-3 mb-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-400" />
+                <h3 className="font-bold text-yellow-400">
+                  Limited Game Access
+                </h3>
+              </div>
+              <p className="text-gray-400 mb-4">
+                {gameAccess?.reason ||
+                  "No games remaining. Purchase a package to continue playing."}
+              </p>
+              <div className="flex gap-3">
+                <Link href="/packages" className="btn-detective flex-1">
+                  <Package className="w-4 h-4 mr-2" />
+                  Get More Games
+                </Link>
+                <button
+                  onClick={() => {
+                    setGameMode("observer");
+                    setJoinAsObserver(true);
+                    setCurrentStep("action");
+                  }}
+                  className="btn-secondary flex-1"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  Watch as Observer
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Step-by-step Setup */}
         <AnimatePresence mode="wait">
           {currentStep === "mode" && (
@@ -350,7 +520,7 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
               <h2 className="text-3xl font-bold text-center mb-8">
                 Choose Your Game Mode
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
                 {gameModes.map((mode) => (
                   <motion.button
                     key={mode.id}
@@ -358,22 +528,50 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                     whileTap={{ scale: 0.98 }}
                     onClick={() => {
                       setGameMode(mode.id as any);
-                      setCurrentStep("name");
+                      if (mode.id === "observer") {
+                        setJoinAsObserver(true);
+                        setCurrentStep("action");
+                      } else {
+                        setJoinAsObserver(false);
+                        setCurrentStep("name");
+                      }
                     }}
+                    disabled={
+                      mode.id !== "observer" &&
+                      !gameAccess?.hasAccess &&
+                      !user?.is_creator
+                    }
                     className={`
-                      game-card text-left p-8 transition-all duration-300
+                      game-card text-left p-8 transition-all duration-300 relative
                       ${
                         gameMode === mode.id
                           ? "border-blue-500 bg-blue-500/10"
                           : "border-gray-600 hover:border-blue-400"
                       }
+                      ${
+                        mode.id !== "observer" &&
+                        !gameAccess?.hasAccess &&
+                        !user?.is_creator
+                          ? "opacity-50 cursor-not-allowed"
+                          : ""
+                      }
                     `}
                   >
+                    {mode.free && (
+                      <div className="absolute -top-3 -right-3">
+                        <div className="bg-green-500 text-white px-3 py-1 rounded-full text-xs font-bold">
+                          FREE
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-4 mb-6">
                       <div
                         className={`p-3 rounded-xl ${
                           mode.recommended
                             ? "bg-orange-500/20 text-orange-400"
+                            : mode.id === "observer"
+                            ? "bg-purple-500/20 text-purple-400"
                             : "bg-blue-500/20 text-blue-400"
                         }`}
                       >
@@ -406,13 +604,24 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                       <div className="flex items-center gap-2 text-sm">
                         <Bot className="w-4 h-4 text-orange-400" />
                         <span className="text-orange-400">{mode.aiModels}</span>
-                        {isCreator && (
+                        {user?.is_creator && mode.id !== "observer" && (
                           <span className="bg-orange-500/20 text-orange-400 px-2 py-1 rounded text-xs ml-2">
                             Creator Auto-Premium
                           </span>
                         )}
                       </div>
                     </div>
+
+                    {mode.id !== "observer" &&
+                      !gameAccess?.hasAccess &&
+                      !user?.is_creator && (
+                        <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                          <div className="flex items-center gap-2 text-red-400 text-xs">
+                            <XCircle className="w-4 h-4" />
+                            <span>No games remaining</span>
+                          </div>
+                        </div>
+                      )}
                   </motion.button>
                 ))}
               </div>
@@ -449,7 +658,7 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                   maxLength={20}
                   onKeyPress={(e) => {
                     if (e.key === "Enter" && playerName.trim().length >= 2) {
-                      setCurrentStep(isCreator ? "action" : "premium");
+                      setCurrentStep(user?.is_creator ? "action" : "premium");
                     }
                   }}
                 />
@@ -467,7 +676,7 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                   </button>
                   <button
                     onClick={() =>
-                      setCurrentStep(isCreator ? "action" : "premium")
+                      setCurrentStep(user?.is_creator ? "action" : "premium")
                     }
                     disabled={playerName.trim().length < 2}
                     className="btn-detective flex-1 disabled:opacity-50"
@@ -479,7 +688,7 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
             </motion.div>
           )}
 
-          {currentStep === "premium" && !isCreator && (
+          {currentStep === "premium" && !user?.is_creator && (
             <motion.div
               key="premium"
               initial={{ opacity: 0, x: 50 }}
@@ -497,9 +706,10 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Standard Models */}
                 <div
-                  className={`glass-card p-6 transition-all ${
+                  className={`glass-card p-6 transition-all cursor-pointer ${
                     !premiumEnabled ? "ring-2 ring-blue-500" : "opacity-75"
                   }`}
+                  onClick={() => setPremiumEnabled(false)}
                 >
                   <div className="flex items-center gap-3 mb-4">
                     <Bot className="w-8 h-8 text-blue-400" />
@@ -532,30 +742,34 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => setPremiumEnabled(false)}
-                    className={`w-full py-3 rounded-lg transition-all ${
+                  <div
+                    className={`w-full py-3 rounded-lg text-center transition-all ${
                       !premiumEnabled
                         ? "bg-blue-500 text-white"
-                        : "border border-blue-500 text-blue-400 hover:bg-blue-500/20"
+                        : "border border-blue-500 text-blue-400"
                     }`}
                   >
                     Use Standard Models
-                  </button>
+                  </div>
                 </div>
 
                 {/* Premium Models */}
                 <div
-                  className={`glass-card p-6 transition-all ${
+                  className={`glass-card p-6 transition-all cursor-pointer ${
                     premiumEnabled ? "ring-2 ring-orange-500" : ""
-                  } ${!hasFreePremium ? "opacity-50" : ""}`}
+                  } ${!canCreatePremiumGame() ? "opacity-50" : ""}`}
+                  onClick={() =>
+                    canCreatePremiumGame() && setPremiumEnabled(true)
+                  }
                 >
                   <div className="flex items-center gap-3 mb-4">
                     <Crown className="w-8 h-8 text-orange-400" />
                     <div>
                       <h3 className="text-xl font-bold">Premium AI Models</h3>
                       <span className="text-orange-400 text-sm">
-                        {hasFreePremium ? "Available" : "Requires Package"}
+                        {canCreatePremiumGame()
+                          ? "Available"
+                          : "Requires Package"}
                       </span>
                     </div>
                   </div>
@@ -569,26 +783,29 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
                     ))}
                   </div>
 
-                  <button
-                    onClick={() => setPremiumEnabled(true)}
-                    disabled={!hasFreePremium}
-                    className={`w-full py-3 rounded-lg transition-all ${
-                      premiumEnabled
+                  <div
+                    className={`w-full py-3 rounded-lg text-center transition-all ${
+                      premiumEnabled && canCreatePremiumGame()
                         ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white"
-                        : hasFreePremium
-                        ? "border border-orange-500 text-orange-400 hover:bg-orange-500/20"
+                        : canCreatePremiumGame()
+                        ? "border border-orange-500 text-orange-400"
                         : "border border-gray-600 text-gray-500 cursor-not-allowed"
                     }`}
                   >
-                    {hasFreePremium
+                    {canCreatePremiumGame()
                       ? "Use Premium Models"
                       : "Get Premium Access"}
-                  </button>
+                  </div>
 
-                  {!hasFreePremium && (
-                    <p className="text-xs text-gray-500 mt-2 text-center">
-                      Purchase a package to unlock premium AI models
-                    </p>
+                  {!canCreatePremiumGame() && (
+                    <div className="mt-3 text-center">
+                      <Link
+                        href="/packages"
+                        className="text-xs text-blue-400 hover:text-blue-300 underline"
+                      >
+                        Purchase a package to unlock →
+                      </Link>
+                    </div>
                   )}
                 </div>
               </div>
@@ -621,136 +838,206 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
               <div className="text-center">
                 <h2 className="text-3xl font-bold mb-4">Ready to Start!</h2>
                 <p className="text-gray-400">
-                  Create a new room or join an existing one
+                  {gameMode === "observer"
+                    ? "Enter a room code to watch a game in progress"
+                    : "Create a new room or join an existing one"}
                 </p>
               </div>
 
               {/* Summary */}
-              <div className="glass-card p-6">
-                <h3 className="font-bold mb-4">Game Configuration Summary</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-400">Player Name:</span>
-                    <div className="font-medium text-blue-400">
-                      {playerName}
+              {gameMode !== "observer" && (
+                <div className="glass-card p-6">
+                  <h3 className="font-bold mb-4">Game Configuration Summary</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-400">Player Name:</span>
+                      <div className="font-medium text-blue-400">
+                        {playerName}
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Game Mode:</span>
-                    <div className="font-medium">
-                      {gameModes.find((m) => m.id === gameMode)?.name}
+                    <div>
+                      <span className="text-gray-400">Game Mode:</span>
+                      <div className="font-medium">
+                        {gameModes.find((m) => m.id === gameMode)?.name}
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">AI Models:</span>
-                    <div className="font-medium text-orange-400">
-                      {premiumEnabled || isCreator ? "Premium" : "Standard"}
-                      {isCreator && (
-                        <span className="ml-2 text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded">
-                          Creator
-                        </span>
-                      )}
+                    <div>
+                      <span className="text-gray-400">AI Models:</span>
+                      <div className="font-medium text-orange-400">
+                        {premiumEnabled || user?.is_creator
+                          ? "Premium"
+                          : "Standard"}
+                        {user?.is_creator && (
+                          <span className="ml-2 text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded">
+                            Creator
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Players:</span>
-                    <div className="font-medium">
-                      {gameMode === "single"
-                        ? "1 Human + 9 AI"
-                        : "2-10 Players"}
+                    <div>
+                      <span className="text-gray-400">Players:</span>
+                      <div className="font-medium">
+                        {gameMode === "single"
+                          ? "1 Human + 9 AI"
+                          : "2-10 Players"}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Action Buttons */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Create Room */}
-                <div className="glass-card p-6">
-                  <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                    <Play className="w-5 h-5 text-green-400" />
-                    Create New Game
-                  </h3>
-                  <p className="text-gray-400 text-sm mb-6">
-                    Start a new room and get a shareable room code
-                  </p>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleCreateRoom}
-                    disabled={!isConnected || isCreating}
-                    className="w-full btn-detective py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
-                  >
-                    {isCreating ? (
-                      <>
-                        <div className="loading-dots">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </div>
-                        Creating Room...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-5 h-5" />
-                        Create & Start Playing
-                      </>
-                    )}
-                  </motion.button>
-                </div>
+                {/* Create Room / Observer Join */}
+                {gameMode === "observer" ? (
+                  <div className="glass-card p-6 md:col-span-2">
+                    <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                      <Eye className="w-5 h-5 text-purple-400" />
+                      Join as Observer
+                    </h3>
+                    <p className="text-gray-400 text-sm mb-4">
+                      Enter a 6-digit room code to watch a game in progress
+                    </p>
+                    <input
+                      type="text"
+                      value={roomCode}
+                      onChange={(e) =>
+                        setRoomCode(e.target.value.toUpperCase())
+                      }
+                      placeholder="ROOM CODE"
+                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-center text-2xl font-mono tracking-widest focus:outline-none focus:border-purple-500 transition-colors mb-4"
+                      maxLength={6}
+                      disabled={isJoining}
+                    />
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleJoinRoom}
+                      disabled={!isConnected || isJoining || !roomCode.trim()}
+                      className="w-full btn-secondary py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                    >
+                      {isJoining ? (
+                        <>
+                          <div className="loading-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                          </div>
+                          Joining as Observer...
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-5 h-5" />
+                          Watch Game (Free)
+                        </>
+                      )}
+                    </motion.button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Create Room */}
+                    <div className="glass-card p-6">
+                      <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                        <Play className="w-5 h-5 text-green-400" />
+                        Create New Game
+                      </h3>
+                      <p className="text-gray-400 text-sm mb-6">
+                        Start a new room and get a shareable room code
+                      </p>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleCreateRoom}
+                        disabled={
+                          !isConnected ||
+                          isCreating ||
+                          (!gameAccess?.hasAccess && !user?.is_creator)
+                        }
+                        className="w-full btn-detective py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                      >
+                        {isCreating ? (
+                          <>
+                            <div className="loading-dots">
+                              <span></span>
+                              <span></span>
+                              <span></span>
+                            </div>
+                            Creating Room...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-5 h-5" />
+                            Create & Start Playing
+                          </>
+                        )}
+                      </motion.button>
+                    </div>
 
-                {/* Join Room */}
-                <div className="glass-card p-6">
-                  <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                    <Users className="w-5 h-5 text-blue-400" />
-                    Join Existing Game
-                  </h3>
-                  <p className="text-gray-400 text-sm mb-4">
-                    Enter a 6-digit room code to join a friend's game
-                  </p>
-                  <input
-                    type="text"
-                    value={roomCode}
-                    onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                    placeholder="ROOM CODE"
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-center text-2xl font-mono tracking-widest focus:outline-none focus:border-blue-500 transition-colors mb-4"
-                    maxLength={6}
-                    disabled={isJoining}
-                  />
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleJoinRoom}
-                    disabled={!isConnected || isJoining || !roomCode.trim()}
-                    className="w-full btn-secondary py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
-                  >
-                    {isJoining ? (
-                      <>
-                        <div className="loading-dots">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </div>
-                        Joining Room...
-                      </>
-                    ) : (
-                      <>
-                        <Users className="w-5 h-5" />
-                        Join Game
-                      </>
-                    )}
-                  </motion.button>
-                </div>
+                    {/* Join Room */}
+                    <div className="glass-card p-6">
+                      <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                        <Users className="w-5 h-5 text-blue-400" />
+                        Join Existing Game
+                      </h3>
+                      <p className="text-gray-400 text-sm mb-4">
+                        Enter a 6-digit room code to join a friend's game
+                      </p>
+                      <input
+                        type="text"
+                        value={roomCode}
+                        onChange={(e) =>
+                          setRoomCode(e.target.value.toUpperCase())
+                        }
+                        placeholder="ROOM CODE"
+                        className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-center text-2xl font-mono tracking-widest focus:outline-none focus:border-blue-500 transition-colors mb-4"
+                        maxLength={6}
+                        disabled={isJoining}
+                      />
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleJoinRoom}
+                        disabled={
+                          !isConnected ||
+                          isJoining ||
+                          !roomCode.trim() ||
+                          (!gameAccess?.hasAccess && !user?.is_creator)
+                        }
+                        className="w-full btn-secondary py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                      >
+                        {isJoining ? (
+                          <>
+                            <div className="loading-dots">
+                              <span></span>
+                              <span></span>
+                              <span></span>
+                            </div>
+                            Joining Room...
+                          </>
+                        ) : (
+                          <>
+                            <Users className="w-5 h-5" />
+                            Join Game
+                          </>
+                        )}
+                      </motion.button>
+                    </div>
+                  </>
+                )}
               </div>
 
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setCurrentStep(isCreator ? "name" : "premium")}
-                  className="btn-ghost flex-1"
-                >
-                  Back
-                </button>
-              </div>
+              {gameMode !== "observer" && (
+                <div className="flex gap-4">
+                  <button
+                    onClick={() =>
+                      setCurrentStep(user?.is_creator ? "name" : "premium")
+                    }
+                    className="btn-ghost flex-1"
+                  >
+                    Back
+                  </button>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -760,17 +1047,23 @@ export function GameSetup({ onGameStartAction }: GameSetupProps) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
-          className="mt-12 text-center text-gray-500 text-sm"
+          className="mt-12 text-center text-gray-500 text-sm space-y-2"
         >
           <p className="flex items-center justify-center gap-2">
             <Shield className="w-4 h-4" />
             🕵️‍♂️ AI players are disguised with human names • 🤖 Can you detect
             them all?
           </p>
-          {isCreator && (
-            <p className="mt-2 text-orange-400">
+          {user?.is_creator && (
+            <p className="text-orange-400">
               <Crown className="w-4 h-4 inline mr-1" />
               Creator Mode: Premium features automatically enabled
+            </p>
+          )}
+          {!gameAccess?.hasAccess && !user?.is_creator && (
+            <p className="text-blue-400">
+              <Eye className="w-4 h-4 inline mr-1" />
+              Observer mode is always free • No game consumption required
             </p>
           )}
         </motion.div>
